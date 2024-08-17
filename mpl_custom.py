@@ -7,6 +7,7 @@ r"""
 Custom classes built around the FigureCanvas class from matplotlib.
 """
 
+import time
 import matplotlib
 import numpy                              as     np
 import matplotlib.pyplot                  as     plt
@@ -76,6 +77,7 @@ class Mpl_im_canvas(FigureCanvas):
             raise ValueError('No file provided, cannot show an image.')
             
         self.update_image(image)
+        self.draw()
         
         # Update the vmin and vmax values of the image
         if self.array is None:
@@ -233,10 +235,6 @@ class Mpl_im_canvas(FigureCanvas):
         # Otherwise, just update the data of the artist
         else:
             self.__im_artist.set_data(self.array)
-          
-        # Apply changes
-        self.draw()
-        self.flush_events()
         
         return
     
@@ -288,8 +286,11 @@ class Mpl_im_canvas(FigureCanvas):
         if self.parent.cube_model is not None:
             spec_canvas.update_model_spectrum(self.parent.cube_model[:, ypos, xpos])
         
-        self.draw()
-        self.flush_events()
+        # Apply changes to the spectrum
+        spec_canvas.draw()
+        
+        # Apply changes to the image
+        event.canvas.draw()
         
         return
     
@@ -302,33 +303,51 @@ class Mpl_spectrum_canvas(FigureCanvas):
     Heavily inspired by the mplCanvas class in PyQubeVis.
     '''
     
-    def __init__(self, 
+    def __init__(self,
                  parent   : QWidget,
+                 wavelength       : np.ndarray | None = None,
+                 wavelength_model : np.ndarray | None = None,
+                 wavelength_unit  : str | None        = None
                 ) -> None:
         r'''    
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
         :param parent: parent widget holding this widget
         :type parent: PyQt6.QtWidgets.QWidget
+        
+        Keyword arguments
+        -----------------
+        
+        :param wavelength: wavelength for the data spectrum
+        :type wavelength: numpy.ndarray or :python:`None`
+        :param wavelength_model: wavelength for the model spectrum
+        :type wavelength_model: numpy.ndarray or :python:`None`
+        :param wavelength_unit: unit of wavelength. If None, no wavelength is shown.
+        :type wavelength_unit: :python:`str` or :python:`None`
+        
+        :raise: TypeError if
+            * :python:`not isinstance(parent, QWidget)`
+            * :python:`wavelength is not None and not isinstance(wavelength, np.ndarray)`
+            * :python:`wavelength_model is not None and not isinstance(wavelength_model, np.ndarray)`
+            * :python:`wavelength_unit is not None and not isinstance(wavelength_unit, str)`
+            * 
         '''
+        
+        if not isinstance(parent, QWidget):
+            raise TypeError(f'Parent widget has type {type(parent)} but it should be of type QWidget.')
+            
+        if wavelength is not None and not isinstance(wavelength, np.ndarray):
+            raise TypeError(f'wavelength range has type {type(wavelength)} but it should be None or numpy.ndarray.')
+            
+        if wavelength_model is not None and not isinstance(wavelength_model, np.ndarray):
+            raise TypeError(f'model wavelength range has type {type(wavelength_model)} but it should be None or numpy.ndarray.')
+        
+        if wavelength_unit is not None and not isinstance(wavelength_unit, str):
+            raise TypeError(f'wavelength unit has type {type(wavelength_unit)} but it should be None or str.')
         
         #: Parent widget
         self.__parent = parent
 
-        # Set the figure and the axis
-        # Note that figure cannot be private because of the parent class that requires it to be public
-        self.figure   = mplf.Figure()
-        
-        super().__init__(figure=self.figure)
-        
-        # Axis is set private and has no setter
-        self.__ax     = self.figure.add_subplot(111)
-        self.ax.set_axis_off()
-        
-        # Setup layout of the figure and axes
-        self.figure.subplots_adjust(left=0., bottom=0., right=1., top=1.)
-        self.ax.axes.tick_params(bottom=False, top=False, left=False, right=False)
-        
         # Artist that holds the spectrum
         # spec_artist is set private and has neither getter nor setter
         # Initialization to None before creating a first artist in self.update_spectrum when a spectrum is provided
@@ -338,7 +357,28 @@ class Mpl_spectrum_canvas(FigureCanvas):
         # spec_model_artist is set private and has neither getter nor setter
         # Initialization to None before creating a first artist in self.update_spectrum when a spectrum is provided
         self.__spec_model_artist = None
-            
+        
+        # Save the wavelength ranges if provided
+        self.__wavelength       = wavelength
+        self.__wavelength_model = wavelength_model
+        
+        ########################################
+        #                Figure                #
+        ########################################
+        
+        # Note that the figure cannot be private because of the parent class that requires it to be public
+        self.figure   = mplf.Figure()
+        
+        super().__init__(figure=self.figure)
+        
+        # Axis is set private and has no setter
+        self.__ax     = self.figure.add_subplot(111)
+        
+        # Setup layout of the figure and axes
+        self.figure.subplots_adjust(left=0.01, right=0.99, top=1., bottom=0.15)
+        self.ax.axes.tick_params(direction='in', bottom=False, top=False, left=False, right=False, labelleft=False, labelright=False, labeltop=False, labelbottom=False)
+        self.ax.spines[['left', 'right', 'top', 'bottom']].set_visible(False)
+        
         return
     
     ###################################
@@ -431,6 +471,26 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         return
     
+    @property
+    def wavelength(self) -> np.ndarray:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Array that contains wavelengths corresponding to the data points.
+        '''
+        
+        return self.__wavelength
+    
+    @property
+    def wavelength_model(self) -> np.ndarray:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Array that contains wavelengths corresponding to the model points.
+        '''
+        
+        return self.__wavelength_model
+    
     #####################################################
     #        Updating properties of the spectrum        #
     #####################################################
@@ -450,20 +510,27 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         # If first instantiation of the artist
         if self.__spec_artist is None:
-            self.__spec_artist = self.ax.plot(self.spectrum, color='k', lw=1.5)
+            
+            if self.wavelength is not None:
+                
+                self.__spec_artist = self.ax.plot(self.wavelength, self.spectrum, color='k', lw=1.5)
+                
+                # Update the layout of the figure
+                self.ax.spines['bottom'].set_visible(True)
+                self.ax.tick_params(bottom=True, labelbottom=True)
+                self.ax.set_xlabel('Wavelength')
+                
+            else:
+                self.__spec_artist = self.ax.plot(self.spectrum, color='k', lw=1.5)
+                
             self.__spec_artist[0].set_drawstyle('steps')
+                
             
         # Otherwise, just update the y-data of the artist
         else:
+            
             self.__spec_artist[0].set_ydata(self.spectrum)
             self.ax.set_ylim([0.9*np.nanmin(self.spectrum), 1.1*np.nanmax(self.spectrum)])
-          
-        # Apply changes
-        self.draw()
-        
-        # We do flush because the spectrum update is typically done when the mouse is moved
-        # And it is better to flush once all changes have been made to avoid recursion issues
-        #self.flush_events()
         
         return
     
@@ -482,30 +549,46 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         # If first instantiation of the artist
         if self.__spec_model_artist is None:
-            self.__spec_model_artist = self.ax.plot(self.spectrum, color='firebrick', lw=1)
+            
+            if self.wavelength_model is not None:
+                
+                self.__spec_model_artist = self.ax.plot(self.wavelength_model, self.spectrum, color='firebrick', lw=1)
+                
+                # Update the layout of the figure
+                self.ax.spines['bottom'].set_visible(True)
+                self.ax.tick_params(bottom=True, labelbottom=True)
+                self.ax.set_xlabel('Wavelength')
+                
+            else:
+                self.__spec_model_artist = self.ax.plot(self.spectrum, color='firebrick', lw=1)
+                
             self.__spec_model_artist[0].set_drawstyle('steps')
             
         # Otherwise, just update the y-data of the artist
         else:
             self.__spec_model_artist[0].set_ydata(self.model_spectrum)
-          
-        # Apply changes
-        self.draw()
-        
-        # We do flush because the spectrum update is typically done when the mouse is moved
-        # And it is better to flush once all changes have been made to avoid recursion issues
-        #self.flush_events()
         
         return
     
 class Dock_widget_spectrum(QDockWidget):
     
-    def __init__(self, parent: QWidget):
+    def __init__(self, parent: QWidget, 
+                 wavelength       : np.ndarray = None,
+                 wavelength_model : np.ndarray = None
+                ):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
         :param parent: parent widget
         :type parent: PyQt6.QtWidgets.QWidget
+        
+        Keyword arguments
+        -----------------
+        
+        :param wavelength: wavelength for the data spectrum
+        :type wavelength: numpy.ndarray or :python:`None`
+        :param wavelength_model: wavelength for the model spectrum
+        :type wavelength_model: numpy.ndarray or :python:`None`
         '''
         
         self.__parent      = parent
@@ -513,12 +596,20 @@ class Dock_widget_spectrum(QDockWidget):
         super().__init__()
         
         # Canvas holding the spectrum
-        self.__spec_canvas = Mpl_spectrum_canvas(self)
+        self.__spec_canvas = Mpl_spectrum_canvas(self, 
+                                                 wavelength       = wavelength, 
+                                                 wavelength_model = wavelength_model
+                                                )
         
         self.setWidget(self.spec_canvas)
         
         # Disable the possibility to close the dock
         self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        
+    @property
+    def parent(self) -> QWidget:
+        
+        return self.__parent
         
     @property
     def spec_canvas(self) -> None:
