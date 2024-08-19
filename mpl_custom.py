@@ -94,8 +94,15 @@ class Mpl_im_canvas(FigureCanvas):
             self.vmin = np.nanquantile(self.array, 0.1)
             self.vmax = np.nanquantile(self.array, 0.9)
         
-        # Plot artist that adds a square around the currently selected pixel
+        # Artist that adds a square around the currently selected pixel
         self.__highlight_rect = None
+        
+        # Artist that adds an expandable rectangle used to mask pixel values, its associated mask, and a stack to have cancel capabilities
+        # The mask is equal to True for masked pixels and False otherwise
+        self.__mask_rect      = None
+        self.__mask_coord     = None
+        self.__mask           = None if self.array is None else np.full(self.array.shape, False, dtype=bool)
+        self.__mask_stack     = []
         
         #######################################
         #           Events handling           #
@@ -139,6 +146,36 @@ class Mpl_im_canvas(FigureCanvas):
         '''
     
         return self.__highlight_rect
+    
+    @property
+    def mask_rect(self) -> matplotlib.lines.Line2D | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Line2D object used to highlight the pixels that the user wants to mask.
+        '''
+    
+        return self.__mask_rect
+    
+    @property
+    def mask(self) -> np.ndarray | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Pixel mask.
+        '''
+    
+        return self.__mask
+    
+    @property
+    def mask_stack(self) -> np.ndarray | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Pixel mask.
+        '''
+    
+        return self.__mask_stack
     
     @property
     def ax(self):
@@ -294,6 +331,84 @@ class Mpl_im_canvas(FigureCanvas):
         
         return
     
+    def update_spectrum(self, xpos: float, ypos: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the spectrum.
+        
+        :param float xpos: x position to extract the spectrum from
+        :param float ypos: y position to extract the spectrum from
+        '''
+        
+        # Canvas holding the spectrum to be updated
+        spec_canvas = self.root.bottom_dock.spec_canvas
+        
+        # Only do the spectrum update if a data cube is provided
+        if self.root.cube is not None:
+            
+            # Update the data spectrum
+            spec_canvas.update_spectrum(self.root.cube[:, ypos, xpos])
+            
+        # Only do the spectrum update if a model cube is provided
+        if self.root.cube_model is not None:
+            spec_canvas.update_model_spectrum(self.root.cube_model[:, ypos, xpos])
+        
+        return
+    
+    def move_highlight_rectangle(self, xpos, ypos) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the position of the highlight rectangle.
+        
+        :param float xpos: x position to place the highlight rectangle
+        :param float ypos: y position to place the highlight rectangle
+        '''
+        
+        xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
+        yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
+        
+        if self.highlight_rect is None:
+            self.__highlight_rect, = self.ax.plot(xvals, yvals, lw=3, color='k')
+        else:
+            self.highlight_rect.set_xdata(xvals)
+            self.highlight_rect.set_ydata(yvals)
+            
+        return
+    
+    def update_mask_rectangle(self, xpos, ypos) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the mask rectangle bounds.
+        
+        :param float xpos: x bound of the rectangle
+        :param float ypos: y bound of the rectangle
+        '''
+        
+        if self.mask_rect is None:
+            
+            xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
+            yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
+            
+            self.__mask_coord = (xpos - 0.5, ypos - 0.5)
+            
+            self.__mask_rect, = self.ax.plot(xvals, yvals, lw=3, color='darkblue')
+        else:
+            
+            if xpos >= self.__mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([self.__mask_coord[0], end := xpos + 0.5, end, self.__mask_coord[0], self.__mask_coord[0]])
+            elif xpos <= self.__mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([init := self.__mask_coord[0] + 1, end := xpos - 0.5, end, init, init])
+            
+            if ypos >= self.__mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([self.__mask_coord[1], self.__mask_coord[1], end := ypos + 0.5, end, self.__mask_coord[1]])
+            elif ypos <= self.__mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([init := self.__mask_coord[1] + 1, init, end := ypos - 0.5, end, init])
+            
+        return
+    
     #########################################
     #           Mouse interaction           #
     #########################################
@@ -330,9 +445,8 @@ class Mpl_im_canvas(FigureCanvas):
         Function called when the mouse is moved. It updates the spectrum at the current cursor location.
         '''
         
-        print(event.xdata, event.ydata, self.root.states)
         # If None, we are outside and we do not update. If Lock state, we do nothing.
-        if event.xdata is None or event.ydata is None or Application_states.LOCK in self.root.states:
+        if event.xdata is None or event.ydata is None:
             return
         
         xpos = int(np.round(event.xdata))
@@ -342,38 +456,36 @@ class Mpl_im_canvas(FigureCanvas):
         if xpos < 0 or xpos >= self.root.cube.shape[2] or ypos < 0 or ypos >= self.root.cube.shape[1]:
             return
             
-        ####################################
-        #           Image update           #
-        ####################################
+        ##########################################
+        #            Rectangle updates           #
+        ##########################################
         
-        xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
-        yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
+        if Application_states.MASK in self.root.states:
+            
+            if self.__highlight_rect is not None:
+                self.__highlight_rect.remove()
+                self.__highlight_rect = None
+
+            self.update_mask_rectangle(xpos, ypos)
         
-        if self.highlight_rect is None:
-            self.__highlight_rect, = self.ax.plot(xvals, yvals, lw=3, color='k')
-        else:
-            self.highlight_rect.set_xdata(xvals)
-            self.highlight_rect.set_ydata(yvals)
+        # Move the position of the highlight rectangle if not in lock state
+        elif Application_states.LOCK not in self.root.states:
+            
+            if self.__mask_rect is not None:
+                self.__mask_rect.remove()
+                self.__mask_rect = None
+
+            self.move_highlight_rectangle(xpos, ypos)
         
         #######################################
         #           Spectrum update           #
         #######################################
         
-        # Canvas holding the spectrum to be updated
-        spec_canvas = self.root.bottom_dock.spec_canvas
-        
-        # Only do the spectrum update if a data cube is provided
-        if self.root.cube is not None:
-            
-            # Update the data spectrum
-            spec_canvas.update_spectrum(self.root.cube[:, ypos, xpos])
-            
-        # Only do the spectrum update if a model cube is provided
-        if self.root.cube_model is not None:
-            spec_canvas.update_model_spectrum(self.root.cube_model[:, ypos, xpos])
+        # Update spectrum
+        self.update_spectrum(xpos, ypos)
         
         # Apply changes to the spectrum
-        spec_canvas.draw()
+        self.root.bottom_dock.spec_canvas.draw()
         
         # Apply changes to the image
         event.canvas.draw()

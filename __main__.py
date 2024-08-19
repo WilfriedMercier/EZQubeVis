@@ -13,7 +13,6 @@ import argparse
 import os.path           as     opath
 import numpy             as     np
 import matplotlib.pyplot as     plt
-import matplotlib        as     mpl
 from   astropy.io        import fits
 from   PyQt6.QtWidgets   import QApplication, QMainWindow, QStatusBar, QToolBar
 from   PyQt6.QtCore      import Qt
@@ -26,6 +25,7 @@ class Window(QMainWindow):
     
     # Class attribute is the list of allowed cmaps from matplotlib
     cmaps_ok = plt.colormaps()
+    cmaps_ok.sort()
     
     def __init__(self, args: argparse.Namespace) -> None:
         r'''
@@ -34,9 +34,8 @@ class Window(QMainWindow):
         :param args: argument namespace built with the argparse library. Contains all the arguments that the program may use
         :type args: argparse.Namespace
         
-        :raises:
-            * :python:`TypeError` if :python:`not isinstance(args, argparse.Namespace)`
-            * :python:`IOError` if no files were provided
+        :raises TypeError: if :python:`not isinstance(args, argparse.Namespace)`
+        :raises IOError: if no files were provided
         '''
         
         super().__init__()
@@ -145,6 +144,57 @@ class Window(QMainWindow):
         
         return
     
+    def remove_states(self, states: list[Application_states]) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Remove the given states from the state set.
+        
+        :param states: states to remove
+        :type states: list[Application_states]
+        
+        :raises TypeError:
+            * if :python:`not isinstance(states, Application_states)`
+            * if :python:`any((not isinstance(state, Application_states) for state in states))`
+        '''
+        
+        if not isinstance(states, list):
+            raise TypeError(f'states has type {type(states)} but it should be a list of Application_states.')
+        
+        if any((not isinstance(state, Application_states) for state in states)):
+            raise TypeError('One of the states is not of type Application_states.')
+        
+        for state in states:
+            if state in self.states:
+                self.states.remove(state)
+                
+        return
+    
+    def add_states(self, states: list[Application_states]) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Add the given states to the state set.
+        
+        :param states: states to add
+        :type states: list[Application_states]
+        
+        :raises TypeError:
+            * if :python:`not isinstance(states, Application_states)`
+            * if :python:`any((not isinstance(state, Application_states) for state in states))`
+        '''
+        
+        if not isinstance(states, list):
+            raise TypeError(f'states has type {type(states)} but it should be a list of Application_states.')
+        
+        if any((not isinstance(state, Application_states) for state in states)):
+            raise TypeError('One of the states is not of type Application_states.')
+        
+        for state in states:
+            self.states.add(state)
+                
+        return
+    
     ###################################
     #       Getters and setters       #
     ###################################
@@ -240,41 +290,72 @@ class Window(QMainWindow):
         Implement actions based on key presses.
         '''
         
+        # Activate/deactivate mask mode
+        if event.key() == Qt.Key.Key_M:
+            
+            # Activate mask state
+            if Application_states.MASK not in self.states:
+                
+                # Remove other incompatible states
+                self.remove_states([Application_states.LOCK])
+                
+                # Add mask state
+                self.states.add(Application_states.MASK)
+                
+                # Send status message
+                self.status_bar.showMessage('Mask mode activated. Select pixels by moving the mouse or with keys.')
+                
+            else:
+                
+                self.states.remove(Application_states.MASK)
         
         # Activate/deactivate lock mode
         if event.key() == Qt.Key.Key_L:
             
+            # Activate lock state
             if Application_states.LOCK not in self.states:
+            
+                # Remove other incompatible states
+                self.remove_states([Application_states.MASK])
+                
+                # Add lock state
                 self.states.add(Application_states.LOCK)
+                
+                # Send status message
                 self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
+                
             else:
+                
                 self.states.remove(Application_states.LOCK)
     
-        # If Lock mode, we do not move the highlight rectangle
         # If the rectangle is not shown yet, we do not update its position
-        if (self.mpl_im_widget.highlight_rect is not None and 
-            Application_states.LOCK not in self.states    and 
+        if (self.mpl_im_widget.highlight_rect is not None and
             event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right]
            ):
             
-            pos = [(np.nanmin(i) + np.nanmax(i))/2 for i in self.mpl_im_widget.highlight_rect.get_data()]
+            # If mask mode
+            if Application_states.MASK in self.states:
+                pass
             
-            if event.key() == Qt.Key.Key_Up:
-                event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] + 1)
-            
-            elif event.key() == Qt.Key.Key_Down:
-                event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] - 1)
+            # If lock mode, we do not move the highlight rectangle
+            elif Application_states.LOCK not in self.states:
                 
-            elif event.key() == Qt.Key.Key_Left:
-                event = DummyMouseEvent(self.mpl_im_widget, pos[0] - 1, pos[1])
+                pos = [(np.nanmin(i) + np.nanmax(i))/2 for i in self.mpl_im_widget.highlight_rect.get_data()]
                 
-            elif event.key() == Qt.Key.Key_Right:
-                event = DummyMouseEvent(self.mpl_im_widget, pos[0] + 1, pos[1])
+                if event.key() == Qt.Key.Key_Up:
+                    event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] + 1)
                 
-            self.mpl_im_widget.mouse_move(event)
-            
-            
-    
+                elif event.key() == Qt.Key.Key_Down:
+                    event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] - 1)
+                    
+                elif event.key() == Qt.Key.Key_Left:
+                    event = DummyMouseEvent(self.mpl_im_widget, pos[0] - 1, pos[1])
+                    
+                elif event.key() == Qt.Key.Key_Right:
+                    event = DummyMouseEvent(self.mpl_im_widget, pos[0] + 1, pos[1])
+                    
+                self.mpl_im_widget.mouse_move(event)
+        
         # If no state in the list, we remove the status bar messages
         if len(self.states) == 0: 
             self.status_bar.clearMessage()

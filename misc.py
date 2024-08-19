@@ -8,9 +8,13 @@ Miscellaneous classes.
 """
 
 import enum
-import numpy           as     np
-import matplotlib      as     mpl
-from   PyQt6.QtWidgets import QToolBar, QComboBox, QWidget
+import numpy                              as     np
+import matplotlib                         as     mpl
+import os.path                            as     opath
+from   functools                          import partialmethod
+from   PyQt6.QtWidgets                    import QToolBar, QComboBox, QWidget, QLabel
+from   PyQt6.QtGui                        import QIcon
+from   PyQt6.QtCore                       import QSize, Qt, QEvent
 
 class DummyMouseEvent:
     r'''
@@ -47,6 +51,136 @@ class Application_states(enum.Enum):
     '''
     
     LOCK = enum.auto()
+    MASK = enum.auto()
+
+class Combobox_cmaps(QComboBox):
+    r'''
+    ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+    
+    A custom combobox made to show colormaps.
+    '''
+    
+    def __init__(self, parent: QWidget, root: QWidget, cmap: str):
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        :param parent: parent widget holding this widget
+        :type parent: PyQt6.QtWidgets.QWidget
+        :param root: root widget
+        :type root: PyQt6.QtWidgets.QWidget
+        :param str cmap: default colormap
+        '''
+        
+        self.__parent = parent
+        self.__root   = root
+        
+        # Cmap selected kept in memory to allow cmap preview on the fly
+        self.__cmap_selected = cmap
+        
+        super().__init__()
+        
+        # Add matplotlib colormaps to the list of cmaps and set to current cmap
+        self.addItems(self.root.cmaps_ok)
+        self.setCurrentText(cmap)
+        self.setFrame(False)
+        
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        
+        ###############################
+        #           Signals           #
+        ###############################
+        
+        # When a new cmap is selected, update the image
+        self.currentTextChanged.connect(self.update_cmap)
+        
+        self.activated.connect(self.root.setFocus)
+        
+        # When a cmap is highlighted, we show how it looks. If not selected, we go back to the original cmap
+        self.highlighted.connect(lambda index: self.preview_cmap(self.root.cmaps_ok[index]))
+        
+        self.view().installEventFilter(self)
+        
+    ###################################
+    #       Getters and setters       #
+    ###################################
+    
+    @property
+    def parent(self) -> QWidget:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Parent widget.
+        '''
+    
+        return self.__parent
+    
+    @property
+    def root(self) -> QWidget:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Root widget.
+        '''
+    
+        return self.__root
+    
+    #################################
+    #       Signals and slots       #
+    #################################
+    
+    def eventFilter(self, obj, event) -> bool:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Custom event filter that handles the escape key in the combobox.
+        '''
+        
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            
+            # Reinitialize the cmap first
+            self.update_cmap(self.__cmap_selected)
+            
+            # Do what the escape key is supposed to do
+            super().eventFilter(obj, event)
+        
+        return super().eventFilter(obj, event)
+        
+    def update_cmap(self, cmap: str, preview: bool = False) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Update cmap and redraw the image when a new cmap is selected in the combobox
+        
+        .. note::
+            
+            A preview will not store the cmap name. Thus, when the escape key is pressed, the cmap will be restored to the value stored in **self.__cmap_selected**
+        
+        :param str cmap: new colormap
+         
+        Keyword arguments
+        -----------------
+        
+        :param bool preview: whether this is a preview or a definite update of the cmap
+        '''
+        
+        # Store the new cmap
+        if not preview:
+            self.__cmap_selected = cmap
+        
+        # Stored temporarily the old cmap
+        cmap_old = self.root.mpl_im_widget.cmap
+        
+        # Update cmap and redraw the image
+        self.root.mpl_im_widget.cmap = cmap
+        self.root.mpl_im_widget.draw()
+        
+        # Send a status message
+        self.root.status_bar.showMessage(f'Colormap was changed from {cmap_old} to {self.root.mpl_im_widget.cmap}.', msecs=3000)
+        
+        return
+    
+    # Method that updates the colormap of the image but in preview mode
+    preview_cmap = partialmethod(update_cmap, preview=True)
 
 class CustomToolbar(QToolBar):
     r'''
@@ -71,48 +205,24 @@ class CustomToolbar(QToolBar):
         self.__parent = parent
         self.__root   = root
         
+        # Label before Combobox
+        self.__label_cmaps   = QLabel('Colormap ')
+        
+        self.addWidget(self.__label_cmaps)
+        
         # Combobox widget containing the list of colormaps
-        self.__combobox_cmaps = QComboBox()
+        self.__combobox_cmaps = Combobox_cmaps(self, self.root, cmap)
         
-        # Add matplotlib colormaps to the list of cmaps and set to current cmap
-        cmaps = self.root.cmaps_ok
-        cmaps.sort()
+        for pos, cmap in enumerate(self.root.cmaps_ok):
+            self.combobox_cmaps.setItemIcon(pos, QIcon(opath.join(f'icons/cmaps/{cmap}.png')))
         
-        self.combobox_cmaps.addItems(cmaps)
-        self.combobox_cmaps.setCurrentText(cmap)
+        self.combobox_cmaps.setIconSize(QSize(100, 10))
         
         self.addWidget(self.combobox_cmaps)
         
-        ###############################
-        #           Signals           #
-        ###############################
-        
-        # When a new cmap is selected, update the image
-        self.combobox_cmaps.currentTextChanged.connect(self.update_cmap)
-        
-        # When the combobox is activated (i.e. clicked with change or not), we give back the focus to the main window
-        self.combobox_cmaps.activated.connect(self.root.setFocus)
-        
         return
     
-    def update_cmap(self, cmap: str) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Update cmap and redraw the image when a new cmap is selected in the combobox
-        '''
-        
-        # Stored temporarily the old cmap
-        cmap_old = self.root.mpl_im_widget.cmap
-        
-        # Update cmap and redraw the image
-        self.root.mpl_im_widget.cmap = cmap
-        self.root.mpl_im_widget.draw()
-        
-        # Send a status message
-        self.root.status_bar.showMessage(f'Colormap was changed from {cmap_old} to {self.root.mpl_im_widget.cmap}.', msecs=3000)
-        
-        return
     
     ###################################
     #       Getters and setters       #
