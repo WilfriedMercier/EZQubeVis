@@ -10,14 +10,15 @@ Inspired by PyQubeVis (https://gitlab.lam.fr/bepinat/PyQubeVis/-/tree/master?ref
 import sys
 import signal
 import argparse
-import os.path                            as     opath
-import numpy                              as     np
-from   astropy.io                         import fits
-from   PyQt6.QtWidgets                    import QApplication, QMainWindow
-from   PyQt6.QtCore                       import Qt
+import os.path         as     opath
+import numpy           as     np
+from   astropy.io      import fits
+from   PyQt6.QtWidgets import QApplication, QMainWindow, QStatusBar
+from   PyQt6.QtCore    import Qt
 
 # Custom imports
-from   mpl_custom                        import Mpl_im_canvas, Dock_widget_spectrum
+from   mpl_custom      import Mpl_im_canvas, Dock_widget_spectrum
+from   misc            import Application_states  
 
 class Window(QMainWindow):
     
@@ -38,8 +39,13 @@ class Window(QMainWindow):
         if not isinstance(args, argparse.Namespace):
             raise TypeError(f'args in Window instance has type {type(args)} but only argparse.Namespace is allowed.')
         
-        #: Command line arguments
+        # Command line arguments
         self.__args   = args
+        
+        # List of states that are currently activated
+        self.__states = set()
+        
+        # 
         
         ###########################
         #        Load data        #
@@ -95,7 +101,8 @@ class Window(QMainWindow):
         #            Main frame that serves as central widget            #
         ##################################################################
         
-        self.mpl_im_widget = Mpl_im_canvas(self, 'rainbow')
+        # Widget containing the image with scrolling capabilities
+        self.mpl_im_widget = Mpl_im_canvas(self, self, 'rainbow')
         
         self.setCentralWidget(self.mpl_im_widget)
         
@@ -115,6 +122,13 @@ class Window(QMainWindow):
                               )
             
             self.resizeDocks((self.bottom_dock, ), (300,), Qt.Orientation.Vertical)
+        
+        ##################################
+        #           Status bar           #
+        ##################################
+        
+        self.__status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
         
         return
     
@@ -171,6 +185,52 @@ class Window(QMainWindow):
         '''
         
         return self.__cube_model_hdr
+    
+    @property
+    def status_bar(self) -> QStatusBar:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Application's status bar.
+        '''
+        
+        return self.__status_bar
+    
+    @property
+    def states(self) -> list:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        List of states that are currently activated.
+        '''
+        
+        return self.__states
+    
+    ################################
+    #        Event handling        #
+    ################################
+    
+    def keyPressEvent(self, event) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Implement actions based on key presses.
+        '''
+        
+        # Lock mode
+        if event.key() == Qt.Key.Key_L:
+            
+            if Application_states.LOCK not in self.states:
+                self.states.add(Application_states.LOCK)
+                self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
+            else:
+                self.states.remove(Application_states.LOCK)
+    
+        # If no state in the list, we remove the status bar messages
+        if len(self.states) == 0: 
+            self.status_bar.clearMessage()
+    
+        return
     
     #########################
     #       IO methods      #

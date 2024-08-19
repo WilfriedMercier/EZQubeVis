@@ -7,13 +7,15 @@ r"""
 Custom classes built around the FigureCanvas class from matplotlib.
 """
 
-import time
 import matplotlib
 import numpy                              as     np
 import matplotlib.pyplot                  as     plt
 import matplotlib.figure                  as     mplf
 from   PyQt6.QtWidgets                    import QWidget, QDockWidget
 from   matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+
+# Custom import
+from   misc                               import Application_states
 
 class Mpl_im_canvas(FigureCanvas):
     r'''
@@ -28,7 +30,8 @@ class Mpl_im_canvas(FigureCanvas):
     __cmaps_ok = plt.colormaps()
     
     def __init__(self, 
-                 parent : QWidget, 
+                 parent : QWidget,
+                 root   : QWidget,
                  cmap   : str,
                 ) -> None:
         r'''    
@@ -36,14 +39,21 @@ class Mpl_im_canvas(FigureCanvas):
         
         :param parent: parent widget holding this widget
         :type parent: PyQt6.QtWidgets.QWidget
+        :param root: root widget at the base of the application
+        :type root: PyQt6.QtWidgets.QWidget
         :param str cmap: initial colormap used
         '''
         
-        #: Parent widget
         self.__parent = parent
+        
+        self.__root   = root
         
         # Using the setter defined below to automatically perform the checks
         self.cmap     = cmap
+        
+        # Using the setter defined below to automatically perform the checks
+        #: Zoom strength. That's the multiplicative factor used to zoom in or zoom out with the scroll wheel.
+        self.zoom_strength = 0.5
 
         # Set the figure and the axis
         # Note that figure cannot be private because of the parent class that requires it to be public
@@ -56,8 +66,7 @@ class Mpl_im_canvas(FigureCanvas):
         self.ax.set_axis_off()
         
         # Setup layout of the figure and axes
-        self.figure.subplots_adjust(left=0., bottom=0., right=1., top=1.)
-        self.ax.axes.tick_params(bottom=False, top=False, left=False, right=False)
+        self.figure.subplots_adjust(left=0, bottom=0., right=1, top=1)
         
         # im_artist is set private and has neither getter nor setter
         # Initialization to None before creating a first artist in self.update_image when an image is provided
@@ -67,12 +76,13 @@ class Mpl_im_canvas(FigureCanvas):
         #           Show the image           #
         ######################################
         
-        if self.__parent.image is not None:
-            image = self.__parent.image
-        elif self.__parent.cube is not None:
-            image = self.__parent.cube[0, :, :]
-        elif self.__parent.cube_model is not None:
-            image = self.__parent.cube_model[0, :, :]
+        # Based on what is given by the user, we show the image or, if not provided, the cube or, if not provided, the cube model
+        if self.root.image is not None:
+            image = self.root.image
+        elif self.root.cube is not None:
+            image = self.root.cube[0, :, :]
+        elif self.root.cube_model is not None:
+            image = self.root.cube_model[0, :, :]
         else:
             raise ValueError('No file provided, cannot show an image.')
             
@@ -95,6 +105,7 @@ class Mpl_im_canvas(FigureCanvas):
         #######################################
         
         self.mpl_connect('motion_notify_event', self.mouse_move)
+        self.mpl_connect('scroll_event',        self.scroll)
             
         return
     
@@ -111,6 +122,16 @@ class Mpl_im_canvas(FigureCanvas):
         '''
     
         return self.__parent
+    
+    @property
+    def root(self) -> QWidget:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Root widget.
+        '''
+    
+        return self.__root
     
     @property
     def highlight_rect(self) -> matplotlib.lines.Line2D | None:
@@ -208,6 +229,40 @@ class Mpl_im_canvas(FigureCanvas):
 
         return
     
+    @property
+    def zoom_strength(self) -> str:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Strength of the zoom used for zooming in and out.
+        '''
+        
+        return self.__zoom_strength
+    
+    @zoom_strength.setter
+    def zoom_strength(self, zoom_strength: int | float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Set the zoom strength to a new value.
+        
+        :param zoom_strength: new strength of the zoom. Must be > 1
+       
+        :raises:
+            * :python:`TypeError` if `not isinstance(cmap, str)`
+            * :python:`ValueError` if the given cmap does not belong to the list of cmaps from matplotlib.pyplot
+        '''
+        
+        if not isinstance(zoom_strength, (int, float)):
+            raise TypeError(f'zoom_strength is of type {type(zoom_strength)} but it must be of type int or float.')
+        
+        if zoom_strength <= 0:
+            raise ValueError(f'zoom_strength equal to {zoom_strength} but it must be strictly larger than 0.')
+        
+        self.__zoom_strength = zoom_strength
+
+        return
+    
     ##################################################
     #        Updating properties of the image        #
     ##################################################
@@ -242,6 +297,31 @@ class Mpl_im_canvas(FigureCanvas):
     #           Mouse interaction           #
     #########################################
     
+    def scroll(self, event) -> None:
+        
+        # Multiplicative factor
+        step = self.zoom_strength
+        
+        # Invert scaling if zooming out
+        if event.button == 'down':
+            step *= -1
+            
+        xmin = self.ax.get_xlim()[0] + step
+        xmax = self.ax.get_xlim()[1] - step
+        
+        ymin = self.ax.get_ylim()[0] + step
+        ymax = self.ax.get_ylim()[1] - step
+        
+        if (xmax - xmin) < 1 or (ymax - ymin) < 1:
+            return
+    
+        self.ax.set_xlim([xmin, xmax])
+        self.ax.set_ylim([ymin, ymax])
+        
+        event.canvas.draw()
+        
+        return
+    
     def mouse_move(self, event) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
@@ -250,12 +330,16 @@ class Mpl_im_canvas(FigureCanvas):
         '''
         
         # If None, we are outside and we do not update
-        if event.xdata is None or event.ydata is None:
+        if event.xdata is None or event.ydata is None or Application_states.LOCK in self.root.states:
             return
         
         xpos = int(np.round(event.xdata))
         ypos = int(np.round(event.ydata))
         
+        # If position is out of bounds, we do nothing
+        if xpos < 0 or xpos >= self.root.cube.shape[2] or ypos < 0 or ypos >= self.root.cube.shape[1]:
+            return
+            
         ####################################
         #           Image update           #
         ####################################
@@ -274,17 +358,17 @@ class Mpl_im_canvas(FigureCanvas):
         #######################################
         
         # Canvas holding the spectrum to be updated
-        spec_canvas = self.parent.bottom_dock.spec_canvas
+        spec_canvas = self.root.bottom_dock.spec_canvas
         
         # Only do the spectrum update if a data cube is provided
-        if self.parent.cube is not None:
+        if self.root.cube is not None:
             
             # Update the data spectrum
-            spec_canvas.update_spectrum(self.parent.cube[:, ypos, xpos])
+            spec_canvas.update_spectrum(self.root.cube[:, ypos, xpos])
             
         # Only do the spectrum update if a model cube is provided
-        if self.parent.cube_model is not None:
-            spec_canvas.update_model_spectrum(self.parent.cube_model[:, ypos, xpos])
+        if self.root.cube_model is not None:
+            spec_canvas.update_model_spectrum(self.root.cube_model[:, ypos, xpos])
         
         # Apply changes to the spectrum
         spec_canvas.draw()
@@ -304,7 +388,7 @@ class Mpl_spectrum_canvas(FigureCanvas):
     '''
     
     def __init__(self,
-                 parent   : QWidget,
+                 parent           : QWidget,
                  wavelength       : np.ndarray | None = None,
                  wavelength_model : np.ndarray | None = None,
                  wavelength_unit  : str | None        = None

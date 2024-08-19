@@ -7,7 +7,12 @@ r"""
 Miscellaneous classes.
 """
 
+import enum
 import numpy as np
+
+class Application_states(enum.Enum):
+    
+    LOCK = enum.auto()
 
 class ArrayList(list):
     r'''
