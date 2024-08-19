@@ -10,17 +10,22 @@ Inspired by PyQubeVis (https://gitlab.lam.fr/bepinat/PyQubeVis/-/tree/master?ref
 import sys
 import signal
 import argparse
-import os.path         as     opath
-import numpy           as     np
-from   astropy.io      import fits
-from   PyQt6.QtWidgets import QApplication, QMainWindow, QStatusBar
-from   PyQt6.QtCore    import Qt
+import os.path           as     opath
+import numpy             as     np
+import matplotlib.pyplot as     plt
+import matplotlib        as     mpl
+from   astropy.io        import fits
+from   PyQt6.QtWidgets   import QApplication, QMainWindow, QStatusBar, QToolBar
+from   PyQt6.QtCore      import Qt
 
 # Custom imports
-from   mpl_custom      import Mpl_im_canvas, Dock_widget_spectrum
-from   misc            import Application_states  
+from   mpl_custom        import Mpl_im_canvas, Dock_widget_spectrum
+from   misc              import Application_states, CustomToolbar, DummyMouseEvent
 
 class Window(QMainWindow):
+    
+    # Class attribute is the list of allowed cmaps from matplotlib
+    cmaps_ok = plt.colormaps()
     
     def __init__(self, args: argparse.Namespace) -> None:
         r'''
@@ -44,8 +49,6 @@ class Window(QMainWindow):
         
         # List of states that are currently activated
         self.__states = set()
-        
-        # 
         
         ###########################
         #        Load data        #
@@ -102,7 +105,7 @@ class Window(QMainWindow):
         ##################################################################
         
         # Widget containing the image with scrolling capabilities
-        self.mpl_im_widget = Mpl_im_canvas(self, self, 'rainbow')
+        self.mpl_im_widget = Mpl_im_canvas(self, self, self.__args.cmap)
         
         self.setCentralWidget(self.mpl_im_widget)
         
@@ -129,6 +132,16 @@ class Window(QMainWindow):
         
         self.__status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        
+        ###############################
+        #           Toolbar           #
+        ###############################
+        
+        self.__toolbar = CustomToolbar(self, self, cmap=self.__args.cmap)
+        self.addToolBar(self.toolbar)
+        
+        # Give focus to main window to catch key presses
+        self.setFocus()
         
         return
     
@@ -197,6 +210,16 @@ class Window(QMainWindow):
         return self.__status_bar
     
     @property
+    def toolbar(self) -> QToolBar:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Application's toolbar.
+        '''
+        
+        return self.__toolbar
+    
+    @property
     def states(self) -> list:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
@@ -217,7 +240,8 @@ class Window(QMainWindow):
         Implement actions based on key presses.
         '''
         
-        # Lock mode
+        
+        # Activate/deactivate lock mode
         if event.key() == Qt.Key.Key_L:
             
             if Application_states.LOCK not in self.states:
@@ -225,6 +249,31 @@ class Window(QMainWindow):
                 self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
             else:
                 self.states.remove(Application_states.LOCK)
+    
+        # If Lock mode, we do not move the highlight rectangle
+        # If the rectangle is not shown yet, we do not update its position
+        if (self.mpl_im_widget.highlight_rect is not None and 
+            Application_states.LOCK not in self.states    and 
+            event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right]
+           ):
+            
+            pos = [(np.nanmin(i) + np.nanmax(i))/2 for i in self.mpl_im_widget.highlight_rect.get_data()]
+            
+            if event.key() == Qt.Key.Key_Up:
+                event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] + 1)
+            
+            elif event.key() == Qt.Key.Key_Down:
+                event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] - 1)
+                
+            elif event.key() == Qt.Key.Key_Left:
+                event = DummyMouseEvent(self.mpl_im_widget, pos[0] - 1, pos[1])
+                
+            elif event.key() == Qt.Key.Key_Right:
+                event = DummyMouseEvent(self.mpl_im_widget, pos[0] + 1, pos[1])
+                
+            self.mpl_im_widget.mouse_move(event)
+            
+            
     
         # If no state in the list, we remove the status bar messages
         if len(self.states) == 0: 
@@ -356,6 +405,8 @@ def main(argv):
     parser.add_argument('--image_hdr_ext',      type=int, nargs='?', default=0, help='File extension for the header of the 2D map (if applicable).')
     parser.add_argument('--cube_hdr_ext',       type=int, nargs='?', default=0, help='File extension for the header of the 3D cube (if applicable).')
     parser.add_argument('--cube_model_hdr_ext', type=int, nargs='?', default=0, help='File extension for the header of the 3D cube model (if applicable).')
+    
+    parser.add_argument('--cmap',               type=str, nargs='?', default='rainbow', help='Default colormap used to show the image.')
     
     # Get command-line arguments
     args   = parser.parse_args()

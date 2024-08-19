@@ -9,7 +9,6 @@ Custom classes built around the FigureCanvas class from matplotlib.
 
 import matplotlib
 import numpy                              as     np
-import matplotlib.pyplot                  as     plt
 import matplotlib.figure                  as     mplf
 from   PyQt6.QtWidgets                    import QWidget, QDockWidget
 from   matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -25,9 +24,6 @@ class Mpl_im_canvas(FigureCanvas):
     
     Heavily inspired by the mplCanvas class in PyQubeVis.
     '''
-    
-    # Class attribute is the list of allowed cmaps from matplotlib
-    __cmaps_ok = plt.colormaps()
     
     def __init__(self, 
                  parent : QWidget,
@@ -47,9 +43,6 @@ class Mpl_im_canvas(FigureCanvas):
         self.__parent = parent
         
         self.__root   = root
-        
-        # Using the setter defined below to automatically perform the checks
-        self.cmap     = cmap
         
         # Using the setter defined below to automatically perform the checks
         #: Zoom strength. That's the multiplicative factor used to zoom in or zoom out with the scroll wheel.
@@ -86,6 +79,10 @@ class Mpl_im_canvas(FigureCanvas):
         else:
             raise ValueError('No file provided, cannot show an image.')
             
+        # Using the setter defined below to automatically perform the checks
+        self.cmap     = cmap
+        
+        # Update the image
         self.update_image(image)
         self.draw()
         
@@ -210,7 +207,7 @@ class Mpl_im_canvas(FigureCanvas):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Set the cmap to a new one.
+        Set the cmap to a new one and update the image.
         
         :param str cmap: new colormap for the image
        
@@ -222,10 +219,14 @@ class Mpl_im_canvas(FigureCanvas):
         if not isinstance(cmap, str):
             raise TypeError(f'cmap is of type {type(cmap)} but it must be of type str.')
         
-        if cmap not in Mpl_im_canvas.__cmaps_ok:
-            raise ValueError(f'cmap is {cmap} which does not belong to the following list of cmaps from matplotlib: {Mpl_im_canvas.__cmaps_ok}.')
+        if cmap not in self.root.cmaps_ok:
+            raise ValueError(f'cmap is {cmap} which does not belong to the following list of cmaps from matplotlib: {self.root.cmaps_ok}.')
         
         self.__cmap   = cmap
+        
+        # Update the cmap of the image
+        if self.__im_artist is not None:
+            self.__im_artist.set_cmap(self.cmap)
 
         return
     
@@ -329,7 +330,8 @@ class Mpl_im_canvas(FigureCanvas):
         Function called when the mouse is moved. It updates the spectrum at the current cursor location.
         '''
         
-        # If None, we are outside and we do not update
+        print(event.xdata, event.ydata, self.root.states)
+        # If None, we are outside and we do not update. If Lock state, we do nothing.
         if event.xdata is None or event.ydata is None or Application_states.LOCK in self.root.states:
             return
         
