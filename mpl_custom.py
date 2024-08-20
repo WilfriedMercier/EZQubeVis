@@ -11,10 +11,11 @@ import matplotlib
 import numpy                              as     np
 import matplotlib.figure                  as     mplf
 from   PyQt6.QtWidgets                    import QWidget, QDockWidget
+from   PyQt6.QtCore                        import Qt
 from   matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 # Custom import
-from   misc                               import Application_states
+from   misc                               import Application_states, DummyMouseEvent
 
 class Mpl_im_canvas(FigureCanvas):
     r'''
@@ -47,6 +48,9 @@ class Mpl_im_canvas(FigureCanvas):
         # Using the setter defined below to automatically perform the checks
         #: Zoom strength. That's the multiplicative factor used to zoom in or zoom out with the scroll wheel.
         self.zoom_strength = 0.5
+        
+        # Mouse coordinates continuously read
+        self.__mouse_coordinates = ()
 
         # Set the figure and the axis
         # Note that figure cannot be private because of the parent class that requires it to be public
@@ -64,6 +68,9 @@ class Mpl_im_canvas(FigureCanvas):
         # im_artist is set private and has neither getter nor setter
         # Initialization to None before creating a first artist in self.update_image when an image is provided
         self.__im_artist = None
+        
+        # By default, we hide the cursor. Only in lock mode, do we see it
+        self.setCursor(Qt.CursorShape.BlankCursor)
         
         ######################################
         #           Show the image           #
@@ -97,19 +104,33 @@ class Mpl_im_canvas(FigureCanvas):
         # Artist that adds a square around the currently selected pixel
         self.__highlight_rect = None
         
-        # Artist that adds an expandable rectangle used to mask pixel values, its associated mask, and a stack to have cancel capabilities
+        ##################################
+        #         Mask rectangle         #
+        ##################################
+        
         # The mask is equal to True for masked pixels and False otherwise
+        
+        # Artist that adds an expandable rectangle used to mask pixel values and a second artist used to show a filled area
         self.__mask_rect      = None
+        self.__mask_rect_fill = None
+        
+        # Coordinates of the four corners of the mask used to update the mask on screen
         self.__mask_coord     = None
+        
+        # True and False mask: True for masked pixels
         self.__mask           = None if self.array is None else np.full(self.array.shape, False, dtype=bool)
+        
+        # Stack containing the coordinates of the pixels that were removed. Used to 
         self.__mask_stack     = []
         
         #######################################
         #           Events handling           #
         #######################################
         
-        self.mpl_connect('motion_notify_event', self.mouse_move)
-        self.mpl_connect('scroll_event',        self.scroll)
+        self.mpl_connect('button_press_event',   self.mouse_press)
+        self.mpl_connect('button_release_event', self.mouse_release)
+        self.mpl_connect('motion_notify_event',  self.mouse_move)
+        self.mpl_connect('scroll_event',         self.scroll)
             
         return
     
@@ -152,10 +173,20 @@ class Mpl_im_canvas(FigureCanvas):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Line2D object used to highlight the pixels that the user wants to mask.
+        Line2D object used to highlight the pixels that the user wants to mask. This corresponds to the edges of the mask zone.
         '''
     
         return self.__mask_rect
+    
+    @property
+    def mask_rect_fill(self) -> matplotlib.collections.PolyCollection | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Artist object used to highlight the pixels that the user wants to mask. This corresponds to the filled area.
+        '''
+    
+        return self.__mask_rect_fill
     
     @property
     def mask(self) -> np.ndarray | None:
@@ -168,7 +199,17 @@ class Mpl_im_canvas(FigureCanvas):
         return self.__mask
     
     @property
-    def mask_stack(self) -> np.ndarray | None:
+    def mask_coord(self) -> tuple[float] | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Coordinates of the four corner of the mask.
+        '''
+    
+        return self.__mask_coord
+    
+    @property
+    def mask_stack(self) -> list | None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
@@ -246,6 +287,10 @@ class Mpl_im_canvas(FigureCanvas):
         
         Set the cmap to a new one and update the image.
         
+        .. note::
+            
+            This will not update the cmap on the image because the draw() method is not called here.
+        
         :param str cmap: new colormap for the image
        
         :raises:
@@ -266,6 +311,16 @@ class Mpl_im_canvas(FigureCanvas):
             self.__im_artist.set_cmap(self.cmap)
 
         return
+    
+    @property
+    def mouse_coordinates(self) -> tuple[float]:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Position of the mouse cursor in figure coordinates.
+        '''
+        
+        return self.__mouse_coordinates
     
     @property
     def zoom_strength(self) -> str:
@@ -377,7 +432,42 @@ class Mpl_im_canvas(FigureCanvas):
             
         return
     
-    def update_mask_rectangle(self, xpos, ypos) -> None:
+    def remove_highlight_rectangle(self) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Remove the highlight rectangle from the figure.
+        '''
+        
+        if self.__highlight_rect is not None:
+            
+            self.__highlight_rect.remove()
+            self.__highlight_rect = None
+        
+        return
+    
+    def remove_mask_rectangle(self) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Remove the mask rectangle from the figure.
+        '''
+        
+        if self.__mask_rect is not None:
+            
+            self.__mask_rect.remove()
+            self.__mask_rect      = None
+            
+            
+        if self.__mask_rect_fill is not None:
+            
+            self.__mask_rect_fill.remove()
+            self.__mask_rect_fill = None
+            
+        return
+        
+    
+    def update_mask_rectangle(self, xpos, ypos, just_move: bool = False) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
@@ -385,9 +475,14 @@ class Mpl_im_canvas(FigureCanvas):
         
         :param float xpos: x bound of the rectangle
         :param float ypos: y bound of the rectangle
+        
+        Keyword arguments
+        -----------------
+        
+        :param bool just_move: whether to just move the rectangle or expand it
         '''
         
-        if self.mask_rect is None:
+        if self.mask_rect is None or just_move:
             
             xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
             yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
@@ -395,18 +490,28 @@ class Mpl_im_canvas(FigureCanvas):
             self.__mask_coord = (xpos - 0.5, ypos - 0.5)
             
             self.__mask_rect, = self.ax.plot(xvals, yvals, lw=3, color='darkblue')
+            
         else:
             
-            if xpos >= self.__mask_coord[0] + 0.5:
-                self.mask_rect.set_xdata([self.__mask_coord[0], end := xpos + 0.5, end, self.__mask_coord[0], self.__mask_coord[0]])
-            elif xpos <= self.__mask_coord[0] + 0.5:
-                self.mask_rect.set_xdata([init := self.__mask_coord[0] + 1, end := xpos - 0.5, end, init, init])
+            # If the filled part of the rectangle is not shown yet, we show it with dummy coordinates before updating them
+            if self.__mask_rect_fill is not None:
+                self.__mask_rect_fill.remove()
+                
+            if xpos >= self.mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([init := self.mask_coord[0], end := xpos + 0.5, end, init, init])
+            elif xpos <= self.mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([init := self.mask_coord[0] + 1, end := xpos - 0.5, end, init, init])
             
-            if ypos >= self.__mask_coord[1] + 0.5:
-                self.mask_rect.set_ydata([self.__mask_coord[1], self.__mask_coord[1], end := ypos + 0.5, end, self.__mask_coord[1]])
-            elif ypos <= self.__mask_coord[1] + 0.5:
-                self.mask_rect.set_ydata([init := self.__mask_coord[1] + 1, init, end := ypos - 0.5, end, init])
+            xcoord = [init, end]
+                
+            if ypos >= self.mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([init := self.mask_coord[1], init, end := ypos + 0.5, end, init])
+            elif ypos <= self.mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([init := self.mask_coord[1] + 1, init, end := ypos - 0.5, end, init])
             
+            self.__mask_rect_fill = self.ax.fill_between(xcoord, init, end)
+            
+            self.mask_rect_fill.set(color='royalblue', alpha=0.5, lw=0)
         return
     
     #########################################
@@ -438,6 +543,41 @@ class Mpl_im_canvas(FigureCanvas):
         
         return
     
+    def mouse_press(self, event) -> None:
+        
+        # Handle left click
+        if event.button == 1 and Application_states.MASK in self.root.states:
+            
+            # Activate mask-on state: masking can now start
+            self.root.states.add(Application_states.MASK_ON)
+            
+            # Send a dummy event to update the shape of the mask rectangle
+            event = DummyMouseEvent(self, self.__mouse_coordinates[0], self.__mouse_coordinates[1])
+            self.mouse_move(event)
+            
+            # Send a statusbar message
+            self.root.status_bar.showMessage('Masking on: keep the left click pressed and move the mouse or use keys to select pixels to mask.')
+        
+        return
+    
+    def mouse_release(self, event) -> None:
+        
+        # Handle left click
+        if event.button == 1 and Application_states.MASK in self.root.states:
+        
+            # Deactivate mask-on state: masking is finished
+            self.root.states.remove(Application_states.MASK_ON)
+            
+            # Send a dummy event to update the shape of the mask rectangle
+            event = DummyMouseEvent(self, self.__mouse_coordinates[0], self.__mouse_coordinates[1])
+            self.mouse_move(event)
+            
+            # Send a statusbar message
+            self.root.status_bar.showMessage('Masking off: mask mode still activated. Press "m" to deactivate mask mode.')
+    
+        return
+            
+    
     def mouse_move(self, event) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
@@ -448,6 +588,9 @@ class Mpl_im_canvas(FigureCanvas):
         # If None, we are outside and we do not update. If Lock state, we do nothing.
         if event.xdata is None or event.ydata is None:
             return
+        
+        # Store mouse coordinates
+        self.__mouse_coordinates = (event.xdata, event.ydata)
         
         xpos = int(np.round(event.xdata))
         ypos = int(np.round(event.ydata))
@@ -462,19 +605,27 @@ class Mpl_im_canvas(FigureCanvas):
         
         if Application_states.MASK in self.root.states:
             
-            if self.__highlight_rect is not None:
-                self.__highlight_rect.remove()
-                self.__highlight_rect = None
-
-            self.update_mask_rectangle(xpos, ypos)
+            self.remove_highlight_rectangle()
+            
+            # If mask mode activated but the mask is not on yet, we only move the square around
+            if Application_states.MASK_ON not in self.root.states:
+        
+                self.remove_mask_rectangle()
+                self.update_mask_rectangle(xpos, ypos, just_move=True)
+                
+            # If mask is on, we update the mask as the mouse moves
+            else:
+                self.update_mask_rectangle(xpos, ypos, just_move=False)
+            
+        # If lock mode, moving the mouse does nothing
+        elif Application_states.LOCK in self.root.states:
+            
+            return
         
         # Move the position of the highlight rectangle if not in lock state
         elif Application_states.LOCK not in self.root.states:
             
-            if self.__mask_rect is not None:
-                self.__mask_rect.remove()
-                self.__mask_rect = None
-
+            self.remove_mask_rectangle()
             self.move_highlight_rectangle(xpos, ypos)
         
         #######################################

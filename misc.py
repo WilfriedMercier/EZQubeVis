@@ -50,8 +50,14 @@ class Application_states(enum.Enum):
     States that the application can be into. This is used to control the interactions with the user (mouse, keyboard, etc.).
     '''
     
+    # Lock state: the highlight rectangle is locked on the image and the spectrum is not updated when the mouse moves
     LOCK = enum.auto()
+    
+    # Mask state: locking is disabled, when the mouse is pressed and held the user can draw a rectangle to mask pixels
     MASK = enum.auto()
+    
+    # Mask activated: only when the mask is activated, does the masking work. The activation happens when the mouse is kept pressed
+    MASK_ON = enum.auto()
 
 class Combobox_cmaps(QComboBox):
     r'''

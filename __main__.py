@@ -293,6 +293,9 @@ class Window(QMainWindow):
         # Activate/deactivate mask mode
         if event.key() == Qt.Key.Key_M:
             
+            # Hide cursor when hovering over the image
+            self.mpl_im_widget.setCursor(Qt.CursorShape.BlankCursor)
+            
             # Activate mask state
             if Application_states.MASK not in self.states:
                 
@@ -302,32 +305,69 @@ class Window(QMainWindow):
                 # Add mask state
                 self.states.add(Application_states.MASK)
                 
+                # Remove highlight rectangle
+                self.mpl_im_widget.remove_highlight_rectangle()
+                
+                # Highlight current pixel with the mask rectangle
+                self.mpl_im_widget.update_mask_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates], just_move=True)
+                self.mpl_im_widget.draw()
+                
                 # Send status message
-                self.status_bar.showMessage('Mask mode activated. Select pixels by moving the mouse or with keys.')
+                self.status_bar.showMessage('Mask mode activated. Click and hold to start masking.')
                 
             else:
                 
-                self.states.remove(Application_states.MASK)
+                # Remove mask state
+                self.remove_states([Application_states.MASK, Application_states.MASK_ON])
+                
+                # Remove mask rectangle
+                self.mpl_im_widget.remove_mask_rectangle()
+                
+                # Highlight current pixel with the highlight rectangle
+                self.mpl_im_widget.move_highlight_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates])
+                self.mpl_im_widget.draw()
+                
+                self.status_bar.showMessage('Mask mode deactivated.', msecs=3000)
         
         # Activate/deactivate lock mode
         if event.key() == Qt.Key.Key_L:
             
             # Activate lock state
             if Application_states.LOCK not in self.states:
+                
+                # Show cursor in lock state
+                self.mpl_im_widget.unsetCursor()
             
                 # Remove other incompatible states
-                self.remove_states([Application_states.MASK])
+                self.remove_states([Application_states.MASK, Application_states.MASK_ON])
                 
                 # Add lock state
                 self.states.add(Application_states.LOCK)
+                
+                # Remove highlight rectangle
+                self.mpl_im_widget.remove_mask_rectangle()
+                
+                # Highlight current pixel with the highlight rectangle
+                self.mpl_im_widget.move_highlight_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates])
+                self.mpl_im_widget.draw()
                 
                 # Send status message
                 self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
                 
             else:
+                    
+                # Hide cursor when hovering over the image
+                self.mpl_im_widget.setCursor(Qt.CursorShape.BlankCursor)
                 
                 self.states.remove(Application_states.LOCK)
+                
+                # Send status message
+                self.status_bar.showMessage('Lock mode deactivated.', msecs=3000)
     
+        #####################################################
+        #        Handling up, down, left, right keys        #
+        #####################################################
+        
         # If the rectangle is not shown yet, we do not update its position
         if (self.mpl_im_widget.highlight_rect is not None and
             event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right]
@@ -356,10 +396,6 @@ class Window(QMainWindow):
                     
                 self.mpl_im_widget.mouse_move(event)
         
-        # If no state in the list, we remove the status bar messages
-        if len(self.states) == 0: 
-            self.status_bar.clearMessage()
-    
         return
     
     #########################
