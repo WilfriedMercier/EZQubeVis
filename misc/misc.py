@@ -214,7 +214,9 @@ class Combobox_cmaps(Base_widget_skeleton, QComboBox):
         
         # Update cmap and redraw the image
         self.root.mpl_im_widget.cmap = cmap
-        self.root.mpl_im_widget.draw()
+        
+        for pos in range(self.root.mpl_im_widget.count()):
+            self.root.mpl_im_widget.widget(pos).draw()
         
         # Send a status message
         self.root.status_bar.showMessage(f'Colormap was changed from {cmap_old} to {self.root.mpl_im_widget.cmap}.', msecs=3000)

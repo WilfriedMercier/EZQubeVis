@@ -117,7 +117,7 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
         self.array = image
         
         # If first instantiation of the artist
-        if self.__im_artist is None:
+        if self.im_artist is None:
             self.__im_artist = self.ax.imshow(self.array, 
                                               cmap   = self.parent.cmap, 
                                               vmin   = self.vmin, 
@@ -127,7 +127,7 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
             
         # Otherwise, just update the data of the artist
         else:
-            self.__im_artist.set_data(self.array)
+            self.im_artist.set_data(self.array)
         
         return
     
@@ -504,6 +504,16 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
 
         return
     
+    @property
+    def im_artist(self) -> matplotlib.image.AxesImage | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Artist that contains the image shown.
+        '''
+        
+        return self.__im_artist
+    
     #########################################
     #           Mouse interaction           #
     #########################################
@@ -813,14 +823,14 @@ class Tab_mpl_images(Base_widget_skeleton, QTabWidget):
         
         # Update the cmap of the image
         if self.image_widget is not None:
-            self.image_widget.__im_artist.set_cmap(self.cmap)
+            self.image_widget.im_artist.set_cmap(self.cmap)
             
         # Update the cmap of the cube
         if self.cube_widget is not None:
-            self.cube_widget.__im_artist.set_cmap(self.cmap)
+            self.cube_widget.im_artist.set_cmap(self.cmap)
             
         # Update the cmap of the cube model
         if self.cube_model_widget is not None:
-            self.cube_model_widget.__im_artist.set_cmap(self.cmap)
+            self.cube_model_widget.im_artist.set_cmap(self.cmap)
 
         return

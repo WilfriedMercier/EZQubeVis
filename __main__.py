@@ -312,23 +312,24 @@ class Window(QMainWindow):
         # Ctrl-z acts on the image
         if event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             
+            # If there is no mask stack, Ctrl-z has no effect
+            if len(image_canvas.mask_stack) < 1:
+                return
+            
             # Get last stack
             stack = image_canvas.mask_stack[-1]
             
             # Loop through previously masked pixels and bring them back to the figure
             for coord, value in stack.items():
-                
-                
                 image_canvas.array[[coord[1]], [coord[0]]] = value
             
-                
             del image_canvas.mask_stack[-1]
             
             image_canvas.update_image(image_canvas.array)
             image_canvas.draw()
             
             # Send status message
-            self.status_bar.showMessage(f'Canceled masking of {len(stack)} pixels.')
+            self.status_bar.showMessage(f'Canceled masking of {len(stack)} pixels.', msecs=3000)
             
         
         # Activate/deactivate mask mode
