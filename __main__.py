@@ -99,6 +99,12 @@ class Window(QMainWindow):
             self.__cube_wv       = None
             self.__cube_model_wv = None
             
+        # If no image is provided, we store the position of the cube so that we can go through it
+        if self.cube is not None or self.cube_model is not None: 
+            self.__cube_pos = 0
+        else: 
+            self.__cube_pos = None
+            
         ##################################################################
         #            Main frame that serves as central widget            #
         ##################################################################
@@ -112,11 +118,11 @@ class Window(QMainWindow):
         #            Docks            #
         ###############################
         
-        # We only show the dock with the spectrum if 2 or 3 files are provided
+        # We only show the dock with the spectrum if a cube and/or a cube model are/is provided
         if self.cube is not None or self.cube_model is not None:
             
             # Add a dock at the bottom that will hold the spectrum
-            self.bottom_dock = Dock_widget_spectrum(self, self.__cube_wv, self.__cube_model_wv)
+            self.bottom_dock = Dock_widget_spectrum(self, self, self.__cube_wv, self.__cube_model_wv)
             
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, 
                                self.bottom_dock, 
@@ -250,6 +256,16 @@ class Window(QMainWindow):
         return self.__cube_model_hdr
     
     @property
+    def cube_pos(self) -> int | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Position of the cube that is shown if no image file is provided.
+        '''
+        
+        return self.__cube_pos
+    
+    @property
     def status_bar(self) -> QStatusBar:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
@@ -290,6 +306,28 @@ class Window(QMainWindow):
         Implement actions based on key presses.
         '''
         
+        # Ctrl-z acts on the image
+        if event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            
+            # Get last stack
+            stack = self.mpl_im_widget.mask_stack[-1]
+            
+            # Loop through previously masked pixels and bring them back to the figure
+            for coord, value in stack.items():
+                
+                
+                self.mpl_im_widget.array[[coord[1]], [coord[0]]] = value
+            
+                
+            del self.mpl_im_widget.mask_stack[-1]
+            
+            self.mpl_im_widget.update_image(self.mpl_im_widget.array)
+            self.mpl_im_widget.draw()
+            
+            # Send status message
+            self.status_bar.showMessage(f'Canceled masking of {len(stack)} pixels.')
+            
+        
         # Activate/deactivate mask mode
         if event.key() == Qt.Key.Key_M:
             
@@ -309,8 +347,9 @@ class Window(QMainWindow):
                 self.mpl_im_widget.remove_highlight_rectangle()
                 
                 # Highlight current pixel with the mask rectangle
-                self.mpl_im_widget.update_mask_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates], just_move=True)
-                self.mpl_im_widget.draw()
+                if self.mpl_im_widget.mask_rect is not None:
+                    self.mpl_im_widget.update_mask_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates], just_move=True)
+                    self.mpl_im_widget.draw()
                 
                 # Send status message
                 self.status_bar.showMessage('Mask mode activated. Click and hold to start masking.')
@@ -330,7 +369,7 @@ class Window(QMainWindow):
                 self.status_bar.showMessage('Mask mode deactivated.', msecs=3000)
         
         # Activate/deactivate lock mode
-        if event.key() == Qt.Key.Key_L:
+        if event.key() == Qt.Key.Key_L and self.mpl_im_widget.mouse_coordinates != ():
             
             # Activate lock state
             if Application_states.LOCK not in self.states:
@@ -354,7 +393,7 @@ class Window(QMainWindow):
                 # Send status message
                 self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
                 
-            else:
+            elif Application_states.LOCK in self.states:
                     
                 # Hide cursor when hovering over the image
                 self.mpl_im_widget.setCursor(Qt.CursorShape.BlankCursor)

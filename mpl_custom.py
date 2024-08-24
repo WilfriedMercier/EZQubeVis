@@ -15,9 +15,9 @@ from   PyQt6.QtCore                        import Qt
 from   matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 # Custom import
-from   misc                               import Application_states, DummyMouseEvent
+from   misc                               import Application_states, DummyMouseEvent, BaseWidgetSkeleton
 
-class Mpl_im_canvas(FigureCanvas):
+class Mpl_im_canvas(BaseWidgetSkeleton, FigureCanvas):
     r'''
     .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
     
@@ -27,36 +27,28 @@ class Mpl_im_canvas(FigureCanvas):
     '''
     
     def __init__(self, 
-                 parent : QWidget,
-                 root   : QWidget,
-                 cmap   : str,
+                 parent   : QWidget,
+                 root     : QWidget,
+                 cmap     : str,
                 ) -> None:
         r'''    
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        :param parent: parent widget holding this widget
-        :type parent: PyQt6.QtWidgets.QWidget
-        :param root: root widget at the base of the application
-        :type root: PyQt6.QtWidgets.QWidget
         :param str cmap: initial colormap used
         '''
+
+        # Note that figure cannot be private because of the parent class that requires it to be public
+        self.figure   = mplf.Figure()
         
-        self.__parent = parent
-        
-        self.__root   = root
+        BaseWidgetSkeleton.__init__(self, parent, root)
+        FigureCanvas.__init__(self, figure=self.figure)
         
         # Using the setter defined below to automatically perform the checks
-        #: Zoom strength. That's the multiplicative factor used to zoom in or zoom out with the scroll wheel.
+        #: Zoom strength.
         self.zoom_strength = 0.5
         
         # Mouse coordinates continuously read
         self.__mouse_coordinates = ()
-
-        # Set the figure and the axis
-        # Note that figure cannot be private because of the parent class that requires it to be public
-        self.figure   = mplf.Figure()
-        
-        super().__init__(figure=self.figure)
         
         # Axis is set private and has no setter
         self.__ax     = self.figure.add_subplot(111)
@@ -78,11 +70,11 @@ class Mpl_im_canvas(FigureCanvas):
         
         # Based on what is given by the user, we show the image or, if not provided, the cube or, if not provided, the cube model
         if self.root.image is not None:
-            image = self.root.image
+            image     = self.root.image
         elif self.root.cube is not None:
-            image = self.root.cube[0, :, :]
+            image     = self.root.cube[self.root.cube_pos, :, :]
         elif self.root.cube_model is not None:
-            image = self.root.cube_model[0, :, :]
+            image     = self.root.cube_model[self.root.cube_pos, :, :]
         else:
             raise ValueError('No file provided, cannot show an image.')
             
@@ -92,14 +84,6 @@ class Mpl_im_canvas(FigureCanvas):
         # Update the image
         self.update_image(image)
         self.draw()
-        
-        # Update the vmin and vmax values of the image
-        if self.array is None:
-            self.vmin = None
-            self.vmax = None
-        else:
-            self.vmin = np.nanquantile(self.array, 0.1)
-            self.vmax = np.nanquantile(self.array, 0.9)
         
         # Artist that adds a square around the currently selected pixel
         self.__highlight_rect = None
@@ -117,9 +101,6 @@ class Mpl_im_canvas(FigureCanvas):
         # Coordinates of the four corners of the mask used to update the mask on screen
         self.__mask_coord     = None
         
-        # True and False mask: True for masked pixels
-        self.__mask           = None if self.array is None else np.full(self.array.shape, False, dtype=bool)
-        
         # Stack containing the coordinates of the pixels that were removed. Used to 
         self.__mask_stack     = []
         
@@ -134,29 +115,35 @@ class Mpl_im_canvas(FigureCanvas):
             
         return
     
-    ###################################
-    #       Getters and setters       #
-    ###################################
-    
-    @property
-    def parent(self) -> QWidget:
+    def update_image(self, image: np.ndarray) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Parent widget.
+        :param image: image to show
+        :type image: numpy.ndarray
         '''
-    
-        return self.__parent
-    
-    @property
-    def root(self) -> QWidget:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Root widget.
-        '''
+        # Update the array, vmin and vmax values
+        self.array = image
+        
+        # If first instantiation of the artist
+        if self.__im_artist is None:
+            self.__im_artist = self.ax.imshow(self.array, 
+                                              cmap   = self.cmap, 
+                                              vmin   = self.vmin, 
+                                              vmax   = self.vmax,
+                                              origin = 'lower'
+                                             )
+            
+        # Otherwise, just update the data of the artist
+        else:
+            self.__im_artist.set_data(self.array)
+        
+        return
     
-        return self.__root
+    ###################################
+    #       Highlight rectangle       #
+    ###################################
     
     @property
     def highlight_rect(self) -> matplotlib.lines.Line2D | None:
@@ -167,6 +154,47 @@ class Mpl_im_canvas(FigureCanvas):
         '''
     
         return self.__highlight_rect
+    
+    def move_highlight_rectangle(self, xpos: float, ypos: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the position of the highlight rectangle.
+        
+        :param xpos: x position to place the highlight rectangle
+        :type xpos: :python:`float`
+        :param ypos: y position to place the highlight rectangle
+        :type ypos: :python:`float`
+        '''
+        
+        xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
+        yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
+        
+        if self.highlight_rect is None:
+            self.__highlight_rect, = self.ax.plot(xvals, yvals, lw=3, color='k')
+        else:
+            self.highlight_rect.set_xdata(xvals)
+            self.highlight_rect.set_ydata(yvals)
+            
+        return
+    
+    def remove_highlight_rectangle(self) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Remove the highlight rectangle from the figure.
+        '''
+        
+        if self.highlight_rect is not None:
+            
+            self.highlight_rect.remove()
+            self.__highlight_rect = None
+        
+        return
+    
+    ##############################
+    #       Mask rectangle       #
+    ##############################
     
     @property
     def mask_rect(self) -> matplotlib.lines.Line2D | None:
@@ -188,15 +216,80 @@ class Mpl_im_canvas(FigureCanvas):
     
         return self.__mask_rect_fill
     
-    @property
-    def mask(self) -> np.ndarray | None:
+    def remove_mask_rectangle(self) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Pixel mask.
+        Remove the mask rectangle from the figure.
         '''
+        
+        # If the mask rectangle exists, we remove it from the figure and put it back to its default value of None
+        if self.mask_rect is not None:
+            
+            self.mask_rect.remove()
+            self.__mask_rect      = None
+            
+        # If the filled mask rectangle exists, we remove it from the figure and put it back to its default value of None
+        if self.mask_rect_fill is not None:
+            
+            self.mask_rect_fill.remove()
+            self.__mask_rect_fill = None
+            
+        return
+        
+    def update_mask_rectangle(self, xpos: float, ypos: float, just_move: bool = False) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the mask rectangle bounds.
+        
+        :param xpos: x bound of the rectangle
+        :type xpos: :python:`float`
+        :param ypos: y bound of the rectangle
+        :type ypos: :python:`float`
+        
+        Keyword arguments
+        -----------------
+        
+        :param just_move: whether to just move the rectangle or expand it
+        :type just_move: :python:`bool`
+        '''
+        
+        if self.mask_rect is None or just_move:
+            
+            xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
+            yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
+            
+            self.__mask_coord = (xpos - 0.5, ypos - 0.5)
+            
+            self.__mask_rect, = self.ax.plot(xvals, yvals, lw=3, color='darkblue')
+            
+        else:
+            
+            # If the filled part of the rectangle is not shown yet, we show it with dummy coordinates before updating them
+            if self.__mask_rect_fill is not None:
+                self.__mask_rect_fill.remove()
+                
+            if xpos >= self.mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([init := self.mask_coord[0], end := xpos + 0.5, end, init, init])
+            elif xpos <= self.mask_coord[0] + 0.5:
+                self.mask_rect.set_xdata([init := self.mask_coord[0] + 1, end := xpos - 0.5, end, init, init])
+            
+            xcoord = [init, end]
+                
+            if ypos >= self.mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([init := self.mask_coord[1], init, end := ypos + 0.5, end, init])
+            elif ypos <= self.mask_coord[1] + 0.5:
+                self.mask_rect.set_ydata([init := self.mask_coord[1] + 1, init, end := ypos - 0.5, end, init])
+            
+            self.__mask_rect_fill = self.ax.fill_between(xcoord, init, end)
+            
+            self.mask_rect_fill.set(color='royalblue', alpha=0.5, lw=0)
+        return
     
-        return self.__mask
+    ###################
+    #      Mask       #
+    ###################
     
     @property
     def mask_coord(self) -> tuple[float] | None:
@@ -228,6 +321,10 @@ class Mpl_im_canvas(FigureCanvas):
     
         return self.__ax
     
+    ####################################################
+    #       Data array and associated properties       #
+    ####################################################
+    
     @property
     def array(self) -> np.ndarray:
         r'''
@@ -248,9 +345,8 @@ class Mpl_im_canvas(FigureCanvas):
         :param image: image to show. If None, the image is not initialized.
         :type image: numpy.ndarray
     
-        :raises: 
-            * :python:`TypeError` if `not isinstance(image, np.ndarray)`
-            * :python:`ValueError` if `image.ndim != 2`
+        :raises TypeError: if :python:`not isinstance(image, np.ndarray)`
+        :raises ValueError: if :python:`image.ndim != 2`
         '''
             
         # Otherwise we check that this is a numpy.ndarray first
@@ -265,10 +361,97 @@ class Mpl_im_canvas(FigureCanvas):
         self.__array = image
         
         # Update vmin and vmax
-        self.vmin    = np.nanquantile(self.array, 0.2)
-        self.vmax    = np.nanquantile(self.array, 0.8)
+        self.set_vmin_vmax(float(np.nanquantile(self.array, 0.2)), 
+                           float(np.nanquantile(self.array, 0.8))
+                          )
         
         return
+    
+    @property
+    def vmin(self) -> float:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Minimum value used to show the image.
+        '''
+        
+        return self.__vmin
+    
+    @vmin.setter
+    def vmin(self, value: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Set the minimum value used to show the image.
+        
+        :param value: value used for vmin
+        :type value: :python:`float`
+        
+        :raises TypeError: if :python:`not isinstance(value, float)`
+        '''
+        
+        if not isinstance(value, float):
+            raise TypeError(f'Vmin value has type {type(value)} but it should be of type float.')
+        
+        self.__vmin = value
+        
+        return
+    
+    @property
+    def vmax(self) -> float:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Maximum value used to show the image.
+        '''
+        
+        return self.__vmax
+    
+    @vmax.setter
+    def vmax(self, value: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Set the maximum value used to show the image.
+        
+        :param value: value used for vmax
+        :type value: :python:`float`
+        
+        :raises TypeError: if :python:`not isinstance(value, float)`
+        '''
+        
+        if not isinstance(value, float):
+            raise TypeError(f'Vmax value has type {type(value)} but it should be of type float.')
+        
+        self.__vmax = value
+        
+        return
+    
+    def set_vmin_vmax(self, vmin: float, vmax: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Set the minimum and maximum values used to show the image.
+        
+        :param vmin: value used for vmin
+        :type vmin: :python:`float`
+        :param vmax: value used for vmin
+        :type vmax: :python:`float`
+        
+        :raises ValueError: if :python:`vmin >= vmax`
+        '''
+        
+        self.vmin = vmin
+        self.vmax = vmax
+        
+        if vmin >= vmax:
+            raise ValueError(f'vmin = {vmin} and vmax = {vmax} but vmin should always be strictly lower than vmax.')
+    
+        return
+    
+    ########################
+    #       Colormap       #
+    ########################
     
     @property
     def cmap(self) -> str:
@@ -291,11 +474,11 @@ class Mpl_im_canvas(FigureCanvas):
             
             This will not update the cmap on the image because the draw() method is not called here.
         
-        :param str cmap: new colormap for the image
+        :param cmap: new colormap for the image
+        :type cmap: `str`
        
-        :raises:
-            * :python:`TypeError` if `not isinstance(cmap, str)`
-            * :python:`ValueError` if the given cmap does not belong to the list of cmaps from matplotlib.pyplot
+        :raises TypeError: if `not isinstance(cmap, str)`
+        :raises ValueError: if the given cmap does not belong to the allowed list of cmaps from matplotlib.pyplot
         '''
         
         if not isinstance(cmap, str):
@@ -311,6 +494,10 @@ class Mpl_im_canvas(FigureCanvas):
             self.__im_artist.set_cmap(self.cmap)
 
         return
+    
+    #####################################
+    #       Miscellaneous methods       #
+    #####################################
     
     @property
     def mouse_coordinates(self) -> tuple[float]:
@@ -360,31 +547,7 @@ class Mpl_im_canvas(FigureCanvas):
     #        Updating properties of the image        #
     ##################################################
     
-    def update_image(self, image: np.ndarray) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        :param image: image to show
-        :type image: numpy.ndarray
-        '''
-        
-        # Update the array
-        self.array = image
-        
-        # If first instantiation of the artist
-        if self.__im_artist is None:
-            self.__im_artist = self.ax.imshow(self.array, 
-                                              cmap   = self.cmap, 
-                                              vmin   = self.vmin, 
-                                              vmax   = self.vmax,
-                                              origin = 'lower'
-                                             )
-            
-        # Otherwise, just update the data of the artist
-        else:
-            self.__im_artist.set_data(self.array)
-        
-        return
+    
     
     def update_spectrum(self, xpos: float, ypos: float) -> None:
         r'''
@@ -411,108 +574,6 @@ class Mpl_im_canvas(FigureCanvas):
         
         return
     
-    def move_highlight_rectangle(self, xpos, ypos) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Given x and y coordinates, update the position of the highlight rectangle.
-        
-        :param float xpos: x position to place the highlight rectangle
-        :param float ypos: y position to place the highlight rectangle
-        '''
-        
-        xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
-        yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
-        
-        if self.highlight_rect is None:
-            self.__highlight_rect, = self.ax.plot(xvals, yvals, lw=3, color='k')
-        else:
-            self.highlight_rect.set_xdata(xvals)
-            self.highlight_rect.set_ydata(yvals)
-            
-        return
-    
-    def remove_highlight_rectangle(self) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Remove the highlight rectangle from the figure.
-        '''
-        
-        if self.__highlight_rect is not None:
-            
-            self.__highlight_rect.remove()
-            self.__highlight_rect = None
-        
-        return
-    
-    def remove_mask_rectangle(self) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Remove the mask rectangle from the figure.
-        '''
-        
-        if self.__mask_rect is not None:
-            
-            self.__mask_rect.remove()
-            self.__mask_rect      = None
-            
-            
-        if self.__mask_rect_fill is not None:
-            
-            self.__mask_rect_fill.remove()
-            self.__mask_rect_fill = None
-            
-        return
-        
-    
-    def update_mask_rectangle(self, xpos, ypos, just_move: bool = False) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Given x and y coordinates, update the mask rectangle bounds.
-        
-        :param float xpos: x bound of the rectangle
-        :param float ypos: y bound of the rectangle
-        
-        Keyword arguments
-        -----------------
-        
-        :param bool just_move: whether to just move the rectangle or expand it
-        '''
-        
-        if self.mask_rect is None or just_move:
-            
-            xvals = [xpos - 0.5, xpos + 0.5, xpos + 0.5, xpos - 0.5, xpos - 0.5]
-            yvals = [ypos - 0.5, ypos - 0.5, ypos + 0.5, ypos + 0.5, ypos - 0.5]
-            
-            self.__mask_coord = (xpos - 0.5, ypos - 0.5)
-            
-            self.__mask_rect, = self.ax.plot(xvals, yvals, lw=3, color='darkblue')
-            
-        else:
-            
-            # If the filled part of the rectangle is not shown yet, we show it with dummy coordinates before updating them
-            if self.__mask_rect_fill is not None:
-                self.__mask_rect_fill.remove()
-                
-            if xpos >= self.mask_coord[0] + 0.5:
-                self.mask_rect.set_xdata([init := self.mask_coord[0], end := xpos + 0.5, end, init, init])
-            elif xpos <= self.mask_coord[0] + 0.5:
-                self.mask_rect.set_xdata([init := self.mask_coord[0] + 1, end := xpos - 0.5, end, init, init])
-            
-            xcoord = [init, end]
-                
-            if ypos >= self.mask_coord[1] + 0.5:
-                self.mask_rect.set_ydata([init := self.mask_coord[1], init, end := ypos + 0.5, end, init])
-            elif ypos <= self.mask_coord[1] + 0.5:
-                self.mask_rect.set_ydata([init := self.mask_coord[1] + 1, init, end := ypos - 0.5, end, init])
-            
-            self.__mask_rect_fill = self.ax.fill_between(xcoord, init, end)
-            
-            self.mask_rect_fill.set(color='royalblue', alpha=0.5, lw=0)
-        return
     
     #########################################
     #           Mouse interaction           #
@@ -544,6 +605,11 @@ class Mpl_im_canvas(FigureCanvas):
         return
     
     def mouse_press(self, event) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Actions taken when the mouse is pressed. This is used for masking.
+        '''
         
         # Handle left click
         if event.button == 1 and Application_states.MASK in self.root.states:
@@ -561,9 +627,44 @@ class Mpl_im_canvas(FigureCanvas):
         return
     
     def mouse_release(self, event) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Actions taken when the mouse is realeased. This is used for masking.
+        '''
         
         # Handle left click
         if event.button == 1 and Application_states.MASK in self.root.states:
+            
+            ####################################################################################
+            #        Store positions of masked pixels and order of masking in the stack        #
+            ####################################################################################
+            
+            xmin   = int(np.nanmin(self.mask_rect.get_data()[0]) + 0.5)
+            xmax   = int(np.nanmax(self.mask_rect.get_data()[0]) + 0.5)
+            xrange = range(xmin, xmax)
+            
+            ymin   = int(np.nanmin(self.mask_rect.get_data()[1]) + 0.5)
+            ymax   = int(np.nanmax(self.mask_rect.get_data()[1]) + 0.5)
+            yrange = range(ymin, ymax)
+            
+            tmp_stack = {}
+            
+            # Store (x, y) combinations and associated value in the array if the (x, y) combination does not already exist somewhere in the stack
+            for x in xrange:
+                for y in yrange:
+                    for stack in self.mask_stack:
+                        if (x, y) in stack.keys():
+                            break
+                    else:
+                        tmp_stack[(x, y)] =  self.array[y, x]
+                        
+            if tmp_stack != {}:
+                self.mask_stack.append(tmp_stack)
+            
+            self.array[[y for _ in xrange for y in yrange], [x for x in xrange for _ in yrange]] = np.nan
+            self.update_image(self.array)
+            self.draw()
         
             # Deactivate mask-on state: masking is finished
             self.root.states.remove(Application_states.MASK_ON)
@@ -576,7 +677,6 @@ class Mpl_im_canvas(FigureCanvas):
             self.root.status_bar.showMessage('Masking off: mask mode still activated. Press "m" to deactivate mask mode.')
     
         return
-            
     
     def mouse_move(self, event) -> None:
         r'''
@@ -635,6 +735,9 @@ class Mpl_im_canvas(FigureCanvas):
         # Update spectrum
         self.update_spectrum(xpos, ypos)
         
+        # Show the vertical line in the spectrum canvas if applicable (cube shown in the im canvas)
+        self.root.bottom_dock.spec_canvas.update_spec_line_position(self.root.cube_pos)
+        
         # Apply changes to the spectrum
         self.root.bottom_dock.spec_canvas.draw()
         
@@ -654,15 +757,19 @@ class Mpl_spectrum_canvas(FigureCanvas):
     
     def __init__(self,
                  parent           : QWidget,
+                 root             : QWidget,
                  wavelength       : np.ndarray | None = None,
                  wavelength_model : np.ndarray | None = None,
-                 wavelength_unit  : str | None        = None
+                 wavelength_unit  : str        | None = None,
+                 spec_pos         : int        | None = None
                 ) -> None:
         r'''    
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
         :param parent: parent widget holding this widget
         :type parent: PyQt6.QtWidgets.QWidget
+        :param root: root widget
+        :type root: PyQt6.QtWidgets.QWidget
         
         Keyword arguments
         -----------------
@@ -673,6 +780,8 @@ class Mpl_spectrum_canvas(FigureCanvas):
         :type wavelength_model: numpy.ndarray or :python:`None`
         :param wavelength_unit: unit of wavelength. If None, no wavelength is shown.
         :type wavelength_unit: :python:`str` or :python:`None`
+        :param spec_pos: initial position in the spectrum that is shown on the image if a cube is shown. If a 2D image is shown instead, this parameter is None.
+        :type spec_pos: :python:`int` or :python:`None`
         
         :raise: TypeError if
             * :python:`not isinstance(parent, QWidget)`
@@ -685,6 +794,9 @@ class Mpl_spectrum_canvas(FigureCanvas):
         if not isinstance(parent, QWidget):
             raise TypeError(f'Parent widget has type {type(parent)} but it should be of type QWidget.')
             
+        if not isinstance(root, QWidget):
+            raise TypeError(f'Root widget has type {type(root)} but it should be of type QWidget.')
+            
         if wavelength is not None and not isinstance(wavelength, np.ndarray):
             raise TypeError(f'wavelength range has type {type(wavelength)} but it should be None or numpy.ndarray.')
             
@@ -694,9 +806,15 @@ class Mpl_spectrum_canvas(FigureCanvas):
         if wavelength_unit is not None and not isinstance(wavelength_unit, str):
             raise TypeError(f'wavelength unit has type {type(wavelength_unit)} but it should be None or str.')
         
-        #: Parent widget
+        if spec_pos is not None and not isinstance(spec_pos, int):
+            raise TypeError(f'spectrum position has type {type(spec_pos)} but it should be None or int.')
+        
+        # Parent widget
         self.__parent = parent
 
+        # Root widget
+        self.__root   = root
+        
         # Artist that holds the spectrum
         # spec_artist is set private and has neither getter nor setter
         # Initialization to None before creating a first artist in self.update_spectrum when a spectrum is provided
@@ -710,6 +828,9 @@ class Mpl_spectrum_canvas(FigureCanvas):
         # Save the wavelength ranges if provided
         self.__wavelength       = wavelength
         self.__wavelength_model = wavelength_model
+        
+        # Artist that adds a vertical line to show the position in the cube if no input image is provided
+        self.__spec_position_line  = None
         
         ########################################
         #                Figure                #
@@ -733,6 +854,26 @@ class Mpl_spectrum_canvas(FigureCanvas):
     ###################################
     #       Getters and setters       #
     ###################################
+    
+    @property
+    def parent(self):
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Parent widget.
+        '''
+    
+        return self.__parent
+    
+    @property
+    def root(self):
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Root widget.
+        '''
+    
+        return self.__root
     
     @property
     def ax(self):
@@ -840,6 +981,16 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         return self.__wavelength_model
     
+    @property
+    def cube_position_line(self) -> matplotlib.lines.Line2D | None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Line that shows the position in the cube.
+        '''
+    
+        return self.__cube_position_line
+    
     #####################################################
     #        Updating properties of the spectrum        #
     #####################################################
@@ -919,17 +1070,38 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         return
     
+    def update_spec_line_position(self, pos: int | None) -> None:
+        
+        if pos is None:
+            return
+        
+        # Create line on firt call
+        if self.__spec_position_line is None:
+            
+            self.__spec_position_line = self.ax.axvline(self.wavelength[self.root.cube_pos], color='k', ls='--')
+            print(self.__spec_position_line.get_data())
+        else:
+            
+            self.__spec_position_line.set_xdata([self.wavelength[self.root.cube_pos]]*2)
+        
+        return
+    
 class Dock_widget_spectrum(QDockWidget):
     
-    def __init__(self, parent: QWidget, 
-                 wavelength       : np.ndarray = None,
-                 wavelength_model : np.ndarray = None
+    def __init__(self, 
+                 parent           : QWidget, 
+                 root             : QWidget,
+                 wavelength       : np.ndarray | None = None,
+                 wavelength_model : np.ndarray | None = None,
+                 spec_pos         : int        | None = None
                 ):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
         :param parent: parent widget
         :type parent: PyQt6.QtWidgets.QWidget
+        :param root: root widget
+        :type root: PyQt6.QtWidgets.QWidget
         
         Keyword arguments
         -----------------
@@ -938,16 +1110,20 @@ class Dock_widget_spectrum(QDockWidget):
         :type wavelength: numpy.ndarray or :python:`None`
         :param wavelength_model: wavelength for the model spectrum
         :type wavelength_model: numpy.ndarray or :python:`None`
+        :param spec_pos: initial position in the spectrum that is shown on the image if a cube is shown. If a 2D image is shown instead, this parameter is None.
+        :type spec_pos: :python:`int` or :python:`None`
         '''
         
         self.__parent      = parent
+        self.__root        = root
         
         super().__init__()
         
         # Canvas holding the spectrum
-        self.__spec_canvas = Mpl_spectrum_canvas(self, 
+        self.__spec_canvas = Mpl_spectrum_canvas(self, self.root,
                                                  wavelength       = wavelength, 
-                                                 wavelength_model = wavelength_model
+                                                 wavelength_model = wavelength_model,
+                                                 spec_pos         = spec_pos
                                                 )
         
         self.setWidget(self.spec_canvas)
@@ -959,6 +1135,11 @@ class Dock_widget_spectrum(QDockWidget):
     def parent(self) -> QWidget:
         
         return self.__parent
+    
+    @property
+    def root(self) -> QWidget:
+        
+        return self.__root
         
     @property
     def spec_canvas(self) -> None:

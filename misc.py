@@ -16,6 +16,65 @@ from   PyQt6.QtWidgets                    import QToolBar, QComboBox, QWidget, Q
 from   PyQt6.QtGui                        import QIcon
 from   PyQt6.QtCore                       import QSize, Qt, QEvent
 
+def check_float(value: float, name: str):
+    
+    if not isinstance(value, float):
+        raise TypeError(f'{name} value has type {type(value)} but it should be of type float.')
+        
+    return value
+
+class BaseWidgetSkeleton:
+    r'''
+    .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+    
+    A simple mother class common to all widgets used in this application that stores the parent and root widgets as private variables and define getters only.
+    '''
+    
+    def __init__(self, parent: QWidget, root: QWidget) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        :param parent: parent widget
+        :type parent: PyQt6.QtWidgets.QWidget
+        :param root: root widget
+        :type root: PyQt6.QtWidgets.QWidget
+        
+        :raises TypeError: if one of the following
+            * :python:`not isinstance(parent, PyQt6.QtWidgets.QWidget)`
+            * :python:`not isinstance(root, PyQt6.QtWidgets.QWidget)`
+        '''
+        
+        if not isinstance(parent, QWidget):
+            raise TypeError(f'Parent widget has type {type(parent)} but it should be of type PyQt6.QtWidgets.QWidget.')
+                
+        if not isinstance(root, QWidget):
+            raise TypeError(f'Root widget has type {type(root)} but it should be of type PyQt6.QtWidgets.QWidget.')
+        
+        self.__parent = parent
+        self.__root   = root
+        
+        return
+        
+    @property
+    def parent(self) -> QWidget:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Parent widget.
+        '''
+    
+        return self.__parent
+    
+    @property
+    def root(self) -> QWidget:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Root widget.
+        '''
+    
+        return self.__root
+    
 class DummyMouseEvent:
     r'''
     ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
@@ -59,31 +118,25 @@ class Application_states(enum.Enum):
     # Mask activated: only when the mask is activated, does the masking work. The activation happens when the mouse is kept pressed
     MASK_ON = enum.auto()
 
-class Combobox_cmaps(QComboBox):
+class Combobox_cmaps(BaseWidgetSkeleton, QComboBox):
     r'''
     ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
     
     A custom combobox made to show colormaps.
     '''
     
-    def __init__(self, parent: QWidget, root: QWidget, cmap: str):
+    def __init__(self, parent: QWidget, root: QWidget, cmap: str, *args, **kwargs):
         r'''
         ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
         
-        :param parent: parent widget holding this widget
-        :type parent: PyQt6.QtWidgets.QWidget
-        :param root: root widget
-        :type root: PyQt6.QtWidgets.QWidget
         :param str cmap: default colormap
         '''
         
-        self.__parent = parent
-        self.__root   = root
+        BaseWidgetSkeleton.__init__(self, parent, root)
+        QComboBox.__init__(self, *args, **kwargs)
         
         # Cmap selected kept in memory to allow cmap preview on the fly
         self.__cmap_selected = cmap
-        
-        super().__init__()
         
         # Add matplotlib colormaps to the list of cmaps and set to current cmap
         self.addItems(self.root.cmaps_ok)
@@ -104,31 +157,8 @@ class Combobox_cmaps(QComboBox):
         # When a cmap is highlighted, we show how it looks. If not selected, we go back to the original cmap
         self.highlighted.connect(lambda index: self.preview_cmap(self.root.cmaps_ok[index]))
         
+        # Event filter is mandatory to handle a custom escape key event
         self.view().installEventFilter(self)
-        
-    ###################################
-    #       Getters and setters       #
-    ###################################
-    
-    @property
-    def parent(self) -> QWidget:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Parent widget.
-        '''
-    
-        return self.__parent
-    
-    @property
-    def root(self) -> QWidget:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Root widget.
-        '''
-    
-        return self.__root
     
     #################################
     #       Signals and slots       #
@@ -173,7 +203,7 @@ class Combobox_cmaps(QComboBox):
         if not preview:
             self.__cmap_selected = cmap
         
-        # Stored temporarily the old cmap
+        # Store temporarily the old cmap
         cmap_old = self.root.mpl_im_widget.cmap
         
         # Update cmap and redraw the image
@@ -188,7 +218,7 @@ class Combobox_cmaps(QComboBox):
     # Method that updates the colormap of the image but in preview mode
     preview_cmap = partialmethod(update_cmap, preview=True)
 
-class CustomToolbar(QToolBar):
+class CustomToolbar(BaseWidgetSkeleton, QToolBar):
     r'''
     ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
     
@@ -206,10 +236,9 @@ class CustomToolbar(QToolBar):
         :param str cmap: default colormap
         '''
         
-        super().__init__('Toolbar', *args, **kwargs)
+        BaseWidgetSkeleton.__init__(self, parent, root)
+        QToolBar.__init__(self, 'Toolbar', *args, **kwargs)
         
-        self.__parent = parent
-        self.__root   = root
         
         # Label before Combobox
         self.__label_cmaps   = QLabel('Colormap ')
@@ -227,32 +256,6 @@ class CustomToolbar(QToolBar):
         self.addWidget(self.combobox_cmaps)
         
         return
-    
-        
-    
-    ###################################
-    #       Getters and setters       #
-    ###################################
-    
-    @property
-    def parent(self) -> QWidget:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Parent widget.
-        '''
-    
-        return self.__parent
-    
-    @property
-    def root(self) -> QWidget:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Root widget.
-        '''
-    
-        return self.__root
     
     @property
     def combobox_cmaps(self) -> QComboBox:
