@@ -18,8 +18,7 @@ from   PyQt6.QtWidgets   import QApplication, QMainWindow, QStatusBar, QToolBar
 from   PyQt6.QtCore      import Qt
 
 # Custom imports
-from   mpl_custom        import Mpl_im_canvas, Dock_widget_spectrum
-from   misc              import Application_states, CustomToolbar, DummyMouseEvent
+import misc
 
 class Window(QMainWindow):
     
@@ -99,7 +98,7 @@ class Window(QMainWindow):
             self.__cube_wv       = None
             self.__cube_model_wv = None
             
-        # If no image is provided, we store the position of the cube so that we can go through it
+        # If a cube is provided, we define a cube position to show
         if self.cube is not None or self.cube_model is not None: 
             self.__cube_pos = 0
         else: 
@@ -110,7 +109,7 @@ class Window(QMainWindow):
         ##################################################################
         
         # Widget containing the image with scrolling capabilities
-        self.mpl_im_widget = Mpl_im_canvas(self, self, self.__args.cmap)
+        self.mpl_im_widget = misc.Tab_mpl_images(self, self, self.__args.cmap)
         
         self.setCentralWidget(self.mpl_im_widget)
         
@@ -122,7 +121,7 @@ class Window(QMainWindow):
         if self.cube is not None or self.cube_model is not None:
             
             # Add a dock at the bottom that will hold the spectrum
-            self.bottom_dock = Dock_widget_spectrum(self, self, self.__cube_wv, self.__cube_model_wv)
+            self.bottom_dock = misc.Dock_widget_spectrum(self, self, self.__cube_wv, self.__cube_model_wv)
             
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, 
                                self.bottom_dock, 
@@ -142,7 +141,7 @@ class Window(QMainWindow):
         #           Toolbar           #
         ###############################
         
-        self.__toolbar = CustomToolbar(self, self, cmap=self.__args.cmap)
+        self.__toolbar = misc.Custom_toolbar(self, self, cmap=self.__args.cmap)
         self.addToolBar(self.toolbar)
         
         # Give focus to main window to catch key presses
@@ -150,7 +149,7 @@ class Window(QMainWindow):
         
         return
     
-    def remove_states(self, states: list[Application_states]) -> None:
+    def remove_states(self, states: list[misc.Application_states]) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
@@ -167,7 +166,7 @@ class Window(QMainWindow):
         if not isinstance(states, list):
             raise TypeError(f'states has type {type(states)} but it should be a list of Application_states.')
         
-        if any((not isinstance(state, Application_states) for state in states)):
+        if any((not isinstance(state, misc.Application_states) for state in states)):
             raise TypeError('One of the states is not of type Application_states.')
         
         for state in states:
@@ -176,7 +175,7 @@ class Window(QMainWindow):
                 
         return
     
-    def add_states(self, states: list[Application_states]) -> None:
+    def add_states(self, states: list[misc.Application_states]) -> None:
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
@@ -193,7 +192,7 @@ class Window(QMainWindow):
         if not isinstance(states, list):
             raise TypeError(f'states has type {type(states)} but it should be a list of Application_states.')
         
-        if any((not isinstance(state, Application_states) for state in states)):
+        if any((not isinstance(state, misc.Application_states) for state in states)):
             raise TypeError('One of the states is not of type Application_states.')
         
         for state in states:
@@ -306,23 +305,27 @@ class Window(QMainWindow):
         Implement actions based on key presses.
         '''
         
+        # Find out which maptlotlib image canvas is shown at the moment.
+        # Any action related to images started by a key press will happen in that canvas
+        image_canvas = self.mpl_im_widget.currentWidget()
+        
         # Ctrl-z acts on the image
         if event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             
             # Get last stack
-            stack = self.mpl_im_widget.mask_stack[-1]
+            stack = image_canvas.mask_stack[-1]
             
             # Loop through previously masked pixels and bring them back to the figure
             for coord, value in stack.items():
                 
                 
-                self.mpl_im_widget.array[[coord[1]], [coord[0]]] = value
+                image_canvas.array[[coord[1]], [coord[0]]] = value
             
                 
-            del self.mpl_im_widget.mask_stack[-1]
+            del image_canvas.mask_stack[-1]
             
-            self.mpl_im_widget.update_image(self.mpl_im_widget.array)
-            self.mpl_im_widget.draw()
+            image_canvas.update_image(image_canvas.array)
+            image_canvas.draw()
             
             # Send status message
             self.status_bar.showMessage(f'Canceled masking of {len(stack)} pixels.')
@@ -332,24 +335,24 @@ class Window(QMainWindow):
         if event.key() == Qt.Key.Key_M:
             
             # Hide cursor when hovering over the image
-            self.mpl_im_widget.setCursor(Qt.CursorShape.BlankCursor)
+            image_canvas.setCursor(Qt.CursorShape.BlankCursor)
             
             # Activate mask state
-            if Application_states.MASK not in self.states:
+            if misc.Application_states.MASK not in self.states:
                 
                 # Remove other incompatible states
-                self.remove_states([Application_states.LOCK])
+                self.remove_states([misc.Application_states.LOCK])
                 
                 # Add mask state
-                self.states.add(Application_states.MASK)
+                self.states.add(misc.Application_states.MASK)
                 
                 # Remove highlight rectangle
-                self.mpl_im_widget.remove_highlight_rectangle()
+                image_canvas.remove_highlight_rectangle()
                 
                 # Highlight current pixel with the mask rectangle
-                if self.mpl_im_widget.mask_rect is not None:
-                    self.mpl_im_widget.update_mask_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates], just_move=True)
-                    self.mpl_im_widget.draw()
+                if image_canvas.mask_rect is not None:
+                    image_canvas.update_mask_rectangle(*[np.round(i) for i in image_canvas.mouse_coordinates], just_move=True)
+                    image_canvas.draw()
                 
                 # Send status message
                 self.status_bar.showMessage('Mask mode activated. Click and hold to start masking.')
@@ -357,48 +360,48 @@ class Window(QMainWindow):
             else:
                 
                 # Remove mask state
-                self.remove_states([Application_states.MASK, Application_states.MASK_ON])
+                self.remove_states([misc.Application_states.MASK, misc.Application_states.MASK_ON])
                 
                 # Remove mask rectangle
-                self.mpl_im_widget.remove_mask_rectangle()
+                image_canvas.remove_mask_rectangle()
                 
                 # Highlight current pixel with the highlight rectangle
-                self.mpl_im_widget.move_highlight_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates])
-                self.mpl_im_widget.draw()
+                image_canvas.move_highlight_rectangle(*[np.round(i) for i in image_canvas.mouse_coordinates])
+                image_canvas.draw()
                 
                 self.status_bar.showMessage('Mask mode deactivated.', msecs=3000)
         
         # Activate/deactivate lock mode
-        if event.key() == Qt.Key.Key_L and self.mpl_im_widget.mouse_coordinates != ():
+        if event.key() == Qt.Key.Key_L and image_canvas.mouse_coordinates != ():
             
             # Activate lock state
-            if Application_states.LOCK not in self.states:
+            if misc.Application_states.LOCK not in self.states:
                 
                 # Show cursor in lock state
-                self.mpl_im_widget.unsetCursor()
+                image_canvas.unsetCursor()
             
                 # Remove other incompatible states
-                self.remove_states([Application_states.MASK, Application_states.MASK_ON])
+                self.remove_states([misc.Application_states.MASK, misc.Application_states.MASK_ON])
                 
                 # Add lock state
-                self.states.add(Application_states.LOCK)
+                self.states.add(misc.Application_states.LOCK)
                 
                 # Remove highlight rectangle
-                self.mpl_im_widget.remove_mask_rectangle()
+                image_canvas.remove_mask_rectangle()
                 
                 # Highlight current pixel with the highlight rectangle
-                self.mpl_im_widget.move_highlight_rectangle(*[np.round(i) for i in self.mpl_im_widget.mouse_coordinates])
-                self.mpl_im_widget.draw()
+                image_canvas.move_highlight_rectangle(*[np.round(i) for i in image_canvas.mouse_coordinates])
+                image_canvas.draw()
                 
                 # Send status message
                 self.status_bar.showMessage('Lock mode activated. Image is locked on highlighted pixel.')
                 
-            elif Application_states.LOCK in self.states:
+            elif misc.Application_states.LOCK in self.states:
                     
                 # Hide cursor when hovering over the image
-                self.mpl_im_widget.setCursor(Qt.CursorShape.BlankCursor)
+                image_canvas.setCursor(Qt.CursorShape.BlankCursor)
                 
-                self.states.remove(Application_states.LOCK)
+                self.states.remove(misc.Application_states.LOCK)
                 
                 # Send status message
                 self.status_bar.showMessage('Lock mode deactivated.', msecs=3000)
@@ -408,32 +411,32 @@ class Window(QMainWindow):
         #####################################################
         
         # If the rectangle is not shown yet, we do not update its position
-        if (self.mpl_im_widget.highlight_rect is not None and
+        if (image_canvas.highlight_rect is not None and
             event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right]
            ):
             
             # If mask mode
-            if Application_states.MASK in self.states:
+            if misc.Application_states.MASK in self.states:
                 pass
             
             # If lock mode, we do not move the highlight rectangle
-            elif Application_states.LOCK not in self.states:
+            elif misc.Application_states.LOCK not in self.states:
                 
-                pos = [(np.nanmin(i) + np.nanmax(i))/2 for i in self.mpl_im_widget.highlight_rect.get_data()]
+                pos = [(np.nanmin(i) + np.nanmax(i))/2 for i in image_canvas.highlight_rect.get_data()]
                 
                 if event.key() == Qt.Key.Key_Up:
-                    event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] + 1)
+                    event = misc.Dummy_mouse_event(image_canvas, pos[0], pos[1] + 1)
                 
                 elif event.key() == Qt.Key.Key_Down:
-                    event = DummyMouseEvent(self.mpl_im_widget, pos[0], pos[1] - 1)
+                    event = misc.Dummy_mouse_event(image_canvas, pos[0], pos[1] - 1)
                     
                 elif event.key() == Qt.Key.Key_Left:
-                    event = DummyMouseEvent(self.mpl_im_widget, pos[0] - 1, pos[1])
+                    event = misc.Dummy_mouse_event(image_canvas, pos[0] - 1, pos[1])
                     
                 elif event.key() == Qt.Key.Key_Right:
-                    event = DummyMouseEvent(self.mpl_im_widget, pos[0] + 1, pos[1])
+                    event = misc.Dummy_mouse_event(image_canvas, pos[0] + 1, pos[1])
                     
-                self.mpl_im_widget.mouse_move(event)
+                image_canvas.mouse_move(event)
         
         return
     

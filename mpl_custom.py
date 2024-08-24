@@ -141,6 +141,31 @@ class Mpl_im_canvas(BaseWidgetSkeleton, FigureCanvas):
         
         return
     
+    def update_spectrum_given_coordinates(self, xpos: float, ypos: float) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Given x and y coordinates, update the spectrum.
+        
+        :param float xpos: x position to extract the spectrum from
+        :param float ypos: y position to extract the spectrum from
+        '''
+        
+        # Canvas holding the spectrum to be updated
+        spec_canvas = self.root.bottom_dock.spec_canvas
+        
+        # Only do the spectrum update if a data cube is provided
+        if self.root.cube is not None:
+            
+            # Update the data spectrum
+            spec_canvas.update_spectrum(self.root.cube[:, ypos, xpos])
+            
+        # Only do the spectrum update if a model cube is provided
+        if self.root.cube_model is not None:
+            spec_canvas.update_model_spectrum(self.root.cube_model[:, ypos, xpos])
+        
+        return
+    
     ###################################
     #       Highlight rectangle       #
     ###################################
@@ -543,43 +568,16 @@ class Mpl_im_canvas(BaseWidgetSkeleton, FigureCanvas):
 
         return
     
-    ##################################################
-    #        Updating properties of the image        #
-    ##################################################
-    
-    
-    
-    def update_spectrum(self, xpos: float, ypos: float) -> None:
-        r'''
-        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
-        
-        Given x and y coordinates, update the spectrum.
-        
-        :param float xpos: x position to extract the spectrum from
-        :param float ypos: y position to extract the spectrum from
-        '''
-        
-        # Canvas holding the spectrum to be updated
-        spec_canvas = self.root.bottom_dock.spec_canvas
-        
-        # Only do the spectrum update if a data cube is provided
-        if self.root.cube is not None:
-            
-            # Update the data spectrum
-            spec_canvas.update_spectrum(self.root.cube[:, ypos, xpos])
-            
-        # Only do the spectrum update if a model cube is provided
-        if self.root.cube_model is not None:
-            spec_canvas.update_model_spectrum(self.root.cube_model[:, ypos, xpos])
-        
-        return
-    
-    
     #########################################
     #           Mouse interaction           #
     #########################################
     
     def scroll(self, event) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Actions taken when the mouse is scrolled.
+        '''
         
         # Multiplicative factor
         step = self.zoom_strength
@@ -594,6 +592,7 @@ class Mpl_im_canvas(BaseWidgetSkeleton, FigureCanvas):
         ymin = self.ax.get_ylim()[0] + step
         ymax = self.ax.get_ylim()[1] - step
         
+        # Scrolling can invert when we reach the size of a pixel. In that case, we stop scrolling.
         if (xmax - xmin) < 1 or (ymax - ymin) < 1:
             return
     
@@ -733,7 +732,7 @@ class Mpl_im_canvas(BaseWidgetSkeleton, FigureCanvas):
         #######################################
         
         # Update spectrum
-        self.update_spectrum(xpos, ypos)
+        self.update_spectrum_given_coordinates(xpos, ypos)
         
         # Show the vertical line in the spectrum canvas if applicable (cube shown in the im canvas)
         self.root.bottom_dock.spec_canvas.update_spec_line_position(self.root.cube_pos)
@@ -999,7 +998,7 @@ class Mpl_spectrum_canvas(FigureCanvas):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Update the spectrum.
+        Update the figure with the given spectrum.
         
         :param spectrum: 1D spectrum to show
         :type spectrum: numpy.ndarray
@@ -1011,17 +1010,19 @@ class Mpl_spectrum_canvas(FigureCanvas):
         # If first instantiation of the artist
         if self.__spec_artist is None:
             
+            # If a wavelength range is provided
             if self.wavelength is not None:
                 
-                self.__spec_artist = self.ax.plot(self.wavelength, self.spectrum, color='k', lw=1.5)
+                self.__spec_artist = self.ax.plot(self.wavelength, spectrum, color='k', lw=1.5)
                 
                 # Update the layout of the figure
                 self.ax.spines['bottom'].set_visible(True)
                 self.ax.tick_params(bottom=True, labelbottom=True)
                 self.ax.set_xlabel('Wavelength')
                 
+            # If no wavelength range is provided
             else:
-                self.__spec_artist = self.ax.plot(self.spectrum, color='k', lw=1.5)
+                self.__spec_artist = self.ax.plot(spectrum, color='k', lw=1.5)
                 
             self.__spec_artist[0].set_drawstyle('steps')
                 
@@ -1029,8 +1030,8 @@ class Mpl_spectrum_canvas(FigureCanvas):
         # Otherwise, just update the y-data of the artist
         else:
             
-            self.__spec_artist[0].set_ydata(self.spectrum)
-            self.ax.set_ylim([0.9*np.nanmin(self.spectrum), 1.1*np.nanmax(self.spectrum)])
+            self.__spec_artist[0].set_ydata(spectrum)
+            self.ax.set_ylim([0.9*np.nanmin(spectrum), 1.1*np.nanmax(spectrum)])
         
         return
     
@@ -1038,7 +1039,7 @@ class Mpl_spectrum_canvas(FigureCanvas):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Update the model spectrum.
+        Update the figure with the given model spectrum.
         
         :param spectrum: 1D model spectrum to show
         :type spectrum: numpy.ndarray
