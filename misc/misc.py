@@ -12,7 +12,7 @@ import numpy                              as     np
 import matplotlib                         as     mpl
 import os.path                            as     opath
 from   functools                          import partialmethod
-from   PyQt6.QtWidgets                    import QToolBar, QComboBox, QWidget, QLabel
+from   PyQt6.QtWidgets                    import QToolBar, QComboBox, QWidget, QLabel, QSlider, QGridLayout, QFrame
 from   PyQt6.QtGui                        import QIcon
 from   PyQt6.QtCore                       import QSize, Qt, QEvent
 
@@ -225,6 +225,84 @@ class Combobox_cmaps(Base_widget_skeleton, QComboBox):
     
     # Method that updates the colormap of the image but in preview mode
     preview_cmap = partialmethod(update_cmap, preview=True)
+    
+class Custom_Slider(Base_widget_skeleton, QFrame):
+    r'''
+    ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+    
+    Custom slider class with additional labels.
+    '''
+    
+    def __init__(self, 
+                 parent  : QWidget, 
+                 root    : QWidget, 
+                 minimum : int, 
+                 maximum : int,
+                 title   : str,
+                 *args, **kwargs
+                ) -> None:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        :param minimum: minimum value of the slider
+        :type minimum: :python:`int`
+        :param maximum: maximum value of the slider
+        :type maximum: :python:`int`
+        :param title: title associated to the slider
+        :type title: :python:`str`
+        '''
+        
+        Base_widget_skeleton.__init__(self, parent, root)
+        QFrame.__init__(self)
+        
+        self.__layout = QGridLayout()
+        
+        self.__slider = QSlider(*args, **kwargs)
+        
+        self.slider.setMinimum(minimum)
+        self.slider.setMaximum(maximum)
+        
+        self.__label = QLabel(f'{minimum}/{maximum}')
+        
+        self.__label_before = QLabel(title)
+        
+        self.layout.addWidget(self.__label_before, 0, 0)
+        self.layout.addWidget(self.slider, 1, 0)
+        self.layout.addWidget(self.label,  1, 1)
+        
+        self.setLayout(self.layout)
+        
+        return
+        
+    @property
+    def slider(self) -> QSlider:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Slider widget.
+        '''
+        
+        return self.__slider
+    
+    @property
+    def label(self) -> QSlider:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Label associated to the slider.
+        '''
+        
+        return self.__label
+    
+    @property
+    def layout(self) -> QSlider:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Layout of the widget.
+        '''
+        
+        return self.__layout
 
 class Custom_toolbar(Base_widget_skeleton, QToolBar):
     r'''
@@ -237,16 +315,16 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         r'''
         ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
         
-        :param parent: parent widget holding this widget
-        :type parent: PyQt6.QtWidgets.QWidget
-        :param root: root widget
-        :type root: PyQt6.QtWidgets.QWidget
-        :param str cmap: default colormap
+        :param cmap: default colormap
+        :type cmap: :python:`str`
         '''
         
         Base_widget_skeleton.__init__(self, parent, root)
         QToolBar.__init__(self, 'Toolbar', *args, **kwargs)
         
+        #########################################
+        #             Cmap combobox             #
+        #########################################
         
         # Label before Combobox
         self.__label_cmaps   = QLabel('Colormap ')
@@ -263,6 +341,31 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         
         self.addWidget(self.combobox_cmaps)
         
+        ####################################
+        #           Cube sliders           #
+        ####################################
+        
+        # Add one cube slider for the data cube if data cube is provided
+        if self.root.cube is not None:
+            self.__cube_slider = Custom_Slider(self, self.root, 0, self.root.cube.shape[0], 'Cube position', 
+                                               Qt.Orientation.Horizontal
+                                              )
+
+        # Add one cube slider for the cube model if cube model is provided
+        if self.root.cube_model is not None:
+            self.__cube_slider_model = Custom_Slider(self, self.root, 0, self.root.cube_model.shape[0], 'Model position', 
+                                                     Qt.Orientation.Horizontal
+                                                    )
+
+        # If no 2D map is provided but a cube is provided, we show the cube slider
+        if self.root.image is None and self.root.cube is not None:
+            self.addWidget(self.cube_slider)
+            
+        # If no 2D map is provided but a cube model is provided, we show the cube model slider
+        if self.root.image is None and self.root.cube is None and self.root.cube_model is not None:
+            self.addWidget(self.cube_slider_model)
+
+        
         return
     
     @property
@@ -274,6 +377,26 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         '''
         
         return self.__combobox_cmaps
+    
+    @property
+    def cube_slider(self) -> Custom_Slider:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Slider used to move along the data cube.
+        '''
+        
+        return self.__cube_slider
+
+    @property
+    def cube_slider_model(self) -> Custom_Slider:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Slider used to move along the cube model.
+        '''
+        
+        return self.__cube_slider_model
 
 class ArrayList(list):
     r'''

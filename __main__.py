@@ -552,15 +552,15 @@ def main(argv):
                                     )
     
     # Mandatory arguments
-    parser.add_argument('-i', '--image',      type=str, nargs='?', help='2D map to open.')
-    parser.add_argument('-c', '--cube',       type=str, nargs='?', help='data cube to open')
-    parser.add_argument('-m', '--cube_model', type=str, nargs='?', help='cube model to open')
+    parser.add_argument('-i', '--image',        type=str, nargs='?', help='2D map to open.')
+    parser.add_argument('-c', '--cube',         type=str, nargs='?', help='data cube to open')
+    parser.add_argument('-m', '--cube_model',   type=str, nargs='?', help='cube model to open')
     
-    parser.add_argument('-s', '--save',       type=str, nargs='?', help='File within which the cleaned map will be saved when the program terminates.')
+    parser.add_argument('-s', '--save',         type=str, nargs='?', help='File within which the cleaned map will be saved when the program terminates.')
     
-    parser.add_argument('--image_ext',        type=int, nargs='?', default=0, help='File extension for the 2D map (if applicable).')
-    parser.add_argument('--cube_ext',         type=int, nargs='?', default=0, help='File extension for the 3D cube (if applicable).')
-    parser.add_argument('--cube_model_ext',   type=int, nargs='?', default=0, help='File extension for the 3D cube model (if applicable).')
+    parser.add_argument('--image_ext',          type=int, nargs='?', default=0, help='File extension for the 2D map (if applicable).')
+    parser.add_argument('--cube_ext',           type=int, nargs='?', default=0, help='File extension for the 3D cube (if applicable).')
+    parser.add_argument('--cube_model_ext',     type=int, nargs='?', default=0, help='File extension for the 3D cube model (if applicable).')
     
     parser.add_argument('--image_hdr_ext',      type=int, nargs='?', default=0, help='File extension for the header of the 2D map (if applicable).')
     parser.add_argument('--cube_hdr_ext',       type=int, nargs='?', default=0, help='File extension for the header of the 3D cube (if applicable).')
