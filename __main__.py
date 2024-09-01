@@ -259,10 +259,28 @@ class Window(QMainWindow):
         r'''
         .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
         
-        Position of the cube that is shown if no image file is provided.
+        Position of the cube and cube model.
         '''
         
         return self.__cube_pos
+    
+    @cube_pos.setter
+    def cube_pos(self, value: int) -> None:
+        r'''
+        .. codeauthor:: Wilfried Mercier - LAM <wilfried.mercier@lam.fr>
+        
+        Set the position of the cube and cube model.
+        '''
+        
+        if not isinstance(value, int):
+            raise TypeError(f'cube position has type {type(value)} but it should be int.')
+        
+        if value < 0:
+            raise ValueError(f'cube position is {value} but it should be >= 0.')
+        
+        self.__cube_pos = value
+        
+        return
     
     @property
     def status_bar(self) -> QStatusBar:

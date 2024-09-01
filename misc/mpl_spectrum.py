@@ -345,18 +345,12 @@ class Mpl_spectrum_canvas(FigureCanvas):
         
         return
     
-    def update_spec_line_position(self, pos: int | None) -> None:
-        
-        if pos is None:
-            return
+    def update_spec_line_position(self) -> None:
         
         # Create line on firt call
         if self.__spec_position_line is None:
-            
             self.__spec_position_line = self.ax.axvline(self.wavelength[self.root.cube_pos], color='k', ls='--')
-            print(self.__spec_position_line.get_data())
         else:
-            
             self.__spec_position_line.set_xdata([self.wavelength[self.root.cube_pos]]*2)
         
         return

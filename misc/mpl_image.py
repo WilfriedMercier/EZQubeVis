@@ -128,6 +128,9 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
         # Otherwise, just update the data of the artist
         else:
             self.im_artist.set_data(self.array)
+            self.im_artist.set_clim((self.vmin, self.vmax))
+            
+            
         
         return
     
@@ -681,7 +684,7 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
         self.update_spectrum_given_coordinates(xpos, ypos)
         
         # Show the vertical line in the spectrum canvas if applicable (cube shown in the im canvas)
-        self.root.bottom_dock.spec_canvas.update_spec_line_position(self.root.cube_pos)
+        self.root.bottom_dock.spec_canvas.update_spec_line_position()
         
         # Apply changes to the spectrum
         self.root.bottom_dock.spec_canvas.draw()
@@ -749,6 +752,9 @@ class Tab_mpl_images(Base_widget_skeleton, QTabWidget):
         # Whatever what page was intialized we set it to the first one
         self.setCurrentIndex(0)
         
+        # Connect tab change signal
+        self.currentChanged.connect(self.tabChanged)
+        
         return
     
     @property
@@ -780,6 +786,25 @@ class Tab_mpl_images(Base_widget_skeleton, QTabWidget):
         '''
         
         return self.__cube_model_widget
+    
+    def tabChanged(self, index: int) -> None:
+        
+        if self.widget(index) is self.__image_widget:
+            
+            self.root.toolbar.cube_slider_action.setVisible(False)
+            self.root.toolbar.cube_slider_model_action.setVisible(False)
+    
+        elif self.widget(index) is self.__cube_widget:
+            
+            self.root.toolbar.cube_slider_action.setVisible(True)
+            self.root.toolbar.cube_slider_model_action.setVisible(False)
+    
+        elif self.widget(index) is self.__cube_model_widget:
+            
+            self.root.toolbar.cube_slider_action.setVisible(False)
+            self.root.toolbar.cube_slider_model_action.setVisible(True)
+
+        return
     
     ########################
     #       Colormap       #

@@ -13,8 +13,10 @@ import matplotlib                         as     mpl
 import os.path                            as     opath
 from   functools                          import partialmethod
 from   PyQt6.QtWidgets                    import QToolBar, QComboBox, QWidget, QLabel, QSlider, QGridLayout, QFrame
-from   PyQt6.QtGui                        import QIcon
+from   PyQt6.QtGui                        import QIcon, QAction
 from   PyQt6.QtCore                       import QSize, Qt, QEvent
+
+
 
 class Base_widget_skeleton:
     r'''
@@ -234,16 +236,25 @@ class Custom_Slider(Base_widget_skeleton, QFrame):
     '''
     
     def __init__(self, 
-                 parent  : QWidget, 
-                 root    : QWidget, 
-                 minimum : int, 
-                 maximum : int,
-                 title   : str,
+                 parent          : QWidget, 
+                 root            : QWidget,
+                 tab             : QWidget,
+                 spec            : QWidget,
+                 cube            : np.ndarray,
+                 minimum         : int, 
+                 maximum         : int,
+                 title           : str,
                  *args, **kwargs
                 ) -> None:
         r'''
         ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
         
+        :param tab: image tab widget associated to this widget
+        :type tab: Mpl_im_canvas
+        :param spec: spectrum widget associated to this widget
+        :type spec: Mpl_spectrum_canvas
+        :param cube: 3D array associated to the slider
+        :type cube: numpy.ndarray
         :param minimum: minimum value of the slider
         :type minimum: :python:`int`
         :param maximum: maximum value of the slider
@@ -255,9 +266,13 @@ class Custom_Slider(Base_widget_skeleton, QFrame):
         Base_widget_skeleton.__init__(self, parent, root)
         QFrame.__init__(self)
         
-        self.__layout = QGridLayout()
+        self.tab_widget  = tab
+        self.spec_widget = spec
+        self.cube        = cube
         
-        self.__slider = QSlider(*args, **kwargs)
+        self.__layout   = QGridLayout()
+        
+        self.__slider   = QSlider(*args, **kwargs)
         
         self.slider.setMinimum(minimum)
         self.slider.setMaximum(maximum)
@@ -271,6 +286,9 @@ class Custom_Slider(Base_widget_skeleton, QFrame):
         self.layout.addWidget(self.label,  1, 1)
         
         self.setLayout(self.layout)
+        
+        # Connect slider motion
+        self.slider.valueChanged.connect(self.slider_value_changed)
         
         return
         
@@ -303,6 +321,49 @@ class Custom_Slider(Base_widget_skeleton, QFrame):
         '''
         
         return self.__layout
+    
+    def update_label(self, value: int) -> None:    
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Update the label showing the current index of the slider.
+        
+        :param value: index
+        :type value: :python:`int`
+        '''
+        
+        self.label.setText(f'{value}/{self.slider.maximum()}')
+        return 
+    
+    def slider_value_changed(self, value: int) -> None:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Actions taken when the value of the slider changes.
+        
+        :param value: index
+        :type value: :python:`int`
+        '''
+        
+        # If the value goes beyond the limit, we stop it
+        if value > self.slider.maximum():
+            value = self.slider.maximum()
+        
+        # Store position in root widget as the current cube position
+        self.root.cube_pos = value
+        
+        # Update label
+        self.update_label(value)
+        
+        # Update the image shown
+        self.tab_widget.update_image(self.cube[value, :, :])
+        self.tab_widget.draw()
+        
+        # Update line in spectrum widget
+        self.spec_widget.update_spec_line_position()
+        self.spec_widget.draw()
+        
+        return
 
 class Custom_toolbar(Base_widget_skeleton, QToolBar):
     r'''
@@ -344,27 +405,48 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         ####################################
         #           Cube sliders           #
         ####################################
+    
+        self.__cube_slider       = None
+        self.__cube_slider_model = None
         
         # Add one cube slider for the data cube if data cube is provided
         if self.root.cube is not None:
-            self.__cube_slider = Custom_Slider(self, self.root, 0, self.root.cube.shape[0], 'Cube position', 
+            
+            self.__cube_slider = Custom_Slider(self, self.root, 
+                                               self.root.mpl_im_widget.cube_widget,
+                                               self.root.bottom_dock.spec_canvas,
+                                               self.root.cube,
+                                               0, 
+                                               self.root.cube.shape[0] - 1, 
+                                               'Cube position', 
                                                Qt.Orientation.Horizontal
                                               )
+                
+            self.__cube_slider_action = self.addWidget(self.cube_slider)
 
         # Add one cube slider for the cube model if cube model is provided
         if self.root.cube_model is not None:
-            self.__cube_slider_model = Custom_Slider(self, self.root, 0, self.root.cube_model.shape[0], 'Model position', 
+            
+            self.__cube_slider_model = Custom_Slider(self, self.root, 
+                                                     self.root.mpl_im_widget.cube_model_widget,
+                                                     self.root.bottom_dock.spec_canvas,
+                                                     self.root.cube_model,
+                                                     0, 
+                                                     self.root.cube_model.shape[0] - 1, 
+                                                     'Model position', 
                                                      Qt.Orientation.Horizontal
                                                     )
 
-        # If no 2D map is provided but a cube is provided, we show the cube slider
-        if self.root.image is None and self.root.cube is not None:
-            self.addWidget(self.cube_slider)
-            
-        # If no 2D map is provided but a cube model is provided, we show the cube model slider
-        if self.root.image is None and self.root.cube is None and self.root.cube_model is not None:
-            self.addWidget(self.cube_slider_model)
+            self.__cube_slider_model_action = self.addWidget(self.cube_slider_model)
 
+        # If no 2D map is provided but a cube is provided, we show the cube slider
+        if self.root.image is not None or (self.root.cube is None and self.root.cube_model is None):
+            self.cube_slider_action.setVisible(False)
+            self.cube_slider_model_action.setVisible(False)
+        elif self.root.cube is not None:
+            self.cube_slider_model_action.setVisible(False)
+        elif self.root.cube_model is None:
+            self.cube_slider_action.setVisible(False)
         
         return
     
@@ -387,6 +469,16 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         '''
         
         return self.__cube_slider
+    
+    @property
+    def cube_slider_action(self) -> QAction:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Action of the slider used to move along the data cube.
+        '''
+        
+        return self.__cube_slider_action
 
     @property
     def cube_slider_model(self) -> Custom_Slider:
@@ -397,6 +489,16 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
         '''
         
         return self.__cube_slider_model
+    
+    @property
+    def cube_slider_model_action(self) -> QAction:
+        r'''
+        ..codeauthor:: Mercier Wilfried - LAM <wilfried.mercier@lam.fr>
+        
+        Action of the slider used to move along the cube model.
+        '''
+        
+        return self.__cube_slider_model_action
 
 class ArrayList(list):
     r'''
