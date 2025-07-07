@@ -791,17 +791,18 @@ class Tab_mpl_images(Base_widget_skeleton, QTabWidget):
         
         if self.widget(index) is self.__image_widget:
             
-            self.root.toolbar.cube_slider_action.setVisible(False)
-            self.root.toolbar.cube_slider_model_action.setVisible(False)
+            if self.__cube_widget is not None: self.root.toolbar.cube_slider_action.setVisible(False)
+            if self.__cube_model_widget is not None: self.root.toolbar.cube_slider_model_action.setVisible(False)
     
         elif self.widget(index) is self.__cube_widget:
             
             self.root.toolbar.cube_slider_action.setVisible(True)
-            self.root.toolbar.cube_slider_model_action.setVisible(False)
+            
+            if self.__cube_model_widget is not None: self.root.toolbar.cube_slider_model_action.setVisible(False)
     
         elif self.widget(index) is self.__cube_model_widget:
             
-            self.root.toolbar.cube_slider_action.setVisible(False)
+            if self.__cube_widget is not None: self.root.toolbar.cube_slider_action.setVisible(False)
             self.root.toolbar.cube_slider_model_action.setVisible(True)
 
         return

@@ -440,14 +440,17 @@ class Custom_toolbar(Base_widget_skeleton, QToolBar):
             self.__cube_slider_model_action = self.addWidget(self.cube_slider_model)
 
         # If no 2D map is provided but a cube is provided, we show the cube slider
+        '''
         if self.root.image is not None or (self.root.cube is None and self.root.cube_model is None):
-            self.cube_slider_action.setVisible(False)
-            self.cube_slider_model_action.setVisible(False)
-        elif self.root.cube is not None:
-            self.cube_slider_model_action.setVisible(False)
-        elif self.root.cube_model is None:
-            self.cube_slider_action.setVisible(False)
+            self.__cube_slider_action.setVisible(False)
+            self.__cube_slider_model_action.setVisible(False)
         
+        if self.root.cube_model is None:
+            self.__cube_slider_model_action.setVisible(False)
+        
+        if self.root.cube is None:
+            self.__cube_slider_action.setVisible(False)
+        '''
         return
     
     @property
