@@ -1,0 +1,9 @@
+name: EZQubeVis
+channels:
+  - defaults
+dependencies:
+  - numpy
+  - python=3.14
+  - matplotlib
+  - astropy
+prefix: /home/wilfried/miniconda3/envs/EZQubeVis
