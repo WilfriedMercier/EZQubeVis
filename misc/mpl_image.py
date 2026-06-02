@@ -637,6 +637,9 @@ class Mpl_im_canvas(Base_widget_skeleton, FigureCanvas):
         if event.xdata is None or event.ydata is None:
             return
         
+        # If the file is 2D (i.e not a cube), we do not update the spectrum
+        if self.root.cube is None: return
+        
         # Store mouse coordinates
         self.__mouse_coordinates = (event.xdata, event.ydata)
         
